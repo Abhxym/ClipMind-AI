@@ -1,0 +1,145 @@
+/* App-level layout styles */
+
+.app { min-height: 100vh; display: flex; flex-direction: column; }
+
+/* ── Header ────────────────────────────────────────────────── */
+.app-header {
+  border-bottom: 1px solid var(--color-border);
+  padding: 16px 0;
+  background: rgba(10,10,15,0.9);
+  backdrop-filter: blur(20px);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.header-brand { display: flex; align-items: center; gap: 14px; }
+.header-logo { font-size: 2rem; }
+.header-title { font-size: 1.3rem; font-weight: 800; }
+.header-sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+.header-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ── Main ──────────────────────────────────────────────────── */
+.app-main {
+  flex: 1;
+  padding: 40px 24px;
+}
+
+/* ── Upload stage ──────────────────────────────────────────── */
+.hero-text {
+  text-align: center;
+  margin-bottom: 40px;
+}
+.hero-text h1 { margin-bottom: 12px; }
+.hero-text p { font-size: 1.05rem; color: var(--text-secondary); }
+
+.upload-layout {
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  gap: 24px;
+  align-items: start;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.form-row { display: flex; gap: 12px; align-items: flex-end; }
+
+.generate-btn {
+  width: 100%;
+  margin-top: 20px;
+  padding: 14px;
+  font-size: 1rem;
+  justify-content: center;
+}
+
+.brand-indicator {
+  margin-top: 12px;
+  font-size: 0.8rem;
+  color: #10b981;
+  background: rgba(16,185,129,0.1);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+  text-align: center;
+}
+
+.pipeline-overview {
+  margin-top: 16px;
+  padding: 16px;
+}
+.po-title { font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 12px; }
+.po-agents { display: flex; flex-direction: column; gap: 6px; }
+.po-agent { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--text-secondary); }
+.po-agent-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--grad-primary);
+  flex-shrink: 0;
+}
+
+/* ── Processing stage ──────────────────────────────────────── */
+.processing-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+.processing-header h2 { font-size: 1.8rem; margin-bottom: 8px; }
+.dot-anim { animation: pulse-glow 1.5s infinite; }
+.overall-progress { max-width: 500px; margin: 16px auto 0; }
+.progress-label { font-size: 0.8rem; color: var(--text-muted); margin-top: 6px; text-align: center; }
+
+.processing-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.processing-info { padding: 24px; }
+.pi-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 16px; }
+.pi-steps { display: flex; flex-direction: column; gap: 10px; }
+.pi-step { font-size: 0.82rem; color: var(--text-secondary); padding: 8px 12px; background: var(--color-surface-2); border-radius: var(--r-sm); }
+
+/* ── Done stage ────────────────────────────────────────────── */
+.done-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+.done-layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.done-right { display: flex; flex-direction: column; gap: 16px; }
+
+/* ── Error stage ───────────────────────────────────────────── */
+.error-card {
+  max-width: 480px;
+  margin: 60px auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .upload-layout { grid-template-columns: 1fr; }
+  .processing-layout { grid-template-columns: 1fr; }
+  .done-layout { grid-template-columns: 1fr; }
+  .header-badges { display: none; }
+}
