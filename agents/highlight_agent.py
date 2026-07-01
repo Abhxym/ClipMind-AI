@@ -68,14 +68,20 @@ def _detect_faces_smiles(frame: np.ndarray) -> Tuple[int, float]:
 
 def _extract_audio(clip_path: str, out_wav: str) -> bool:
     """Extract audio from a video using ffmpeg. Returns True on success."""
-    cmd = [
-        "ffmpeg", "-y", "-i", clip_path,
-        "-vn", "-acodec", "pcm_s16le",
-        "-ar", "16000", "-ac", "1",
-        out_wav, "-loglevel", "error"
-    ]
-    result = subprocess.run(cmd, capture_output=True)
-    return result.returncode == 0 and Path(out_wav).exists()
+    try:
+        import imageio_ffmpeg
+        if not Path(clip_path).exists():
+            return False
+        cmd = [
+            imageio_ffmpeg.get_ffmpeg_exe(), "-y", "-i", clip_path,
+            "-vn", "-acodec", "pcm_s16le",
+            "-ar", "16000", "-ac", "1",
+            out_wav, "-loglevel", "error"
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=30)
+        return result.returncode == 0 and Path(out_wav).exists()
+    except Exception:
+        return False
 
 
 def _audio_onset_energy(wav_path: str, start: float, end: float) -> float:
@@ -89,7 +95,7 @@ def _audio_onset_energy(wav_path: str, start: float, end: float) -> float:
         if len(y) == 0:
             return 0.0
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
-        return float(np.mean(onset_env)) / 20.0   # normalise
+        return float(np.mean(onset_env)) / 20.0
     except Exception:
         return 0.0
 
@@ -101,8 +107,8 @@ def _whisper_transcribe(audio_path: str) -> str:
         model = whisper.load_model("base")
         result = model.transcribe(audio_path, fp16=False)
         return result.get("text", "").strip()
-    except Exception as e:
-        return f"[Transcription unavailable: {e}]"
+    except Exception:
+        return ""
 
 
 def analyse_highlights(
@@ -110,77 +116,86 @@ def analyse_highlights(
     job_id: str,
 ) -> Tuple[List[HighlightScore], str, Optional[str]]:
     """
-    For each scene, compute face/smile detection and audio excitement.
-    Also transcribes the first available clip's audio via Whisper.
+    For each scene, compute face/smile detection.
+    Optionally transcribes the first clip's audio via Whisper.
 
     Returns: (highlight_scores, transcript_text, audio_wav_path)
     """
-    # Extract audio from the first clip for transcription
     temp_dir = Path("temp") / job_id
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     audio_path: Optional[str] = None
     transcript = ""
 
+    # Try to extract and transcribe audio from first clip only
     if scenes:
         first_clip = scenes[0]["clip_path"]
         wav_path = str(temp_dir / "audio_full.wav")
         if _extract_audio(first_clip, wav_path):
             audio_path = wav_path
+            transcript = _whisper_transcribe(wav_path)
 
-    # Transcribe all clips and concatenate
-    processed_clips: set = set()
-    all_transcripts: List[str] = []
-    for scene in scenes:
-        if scene["clip_path"] not in processed_clips:
-            processed_clips.add(scene["clip_path"])
-            wav = str(temp_dir / f"audio_{Path(scene['clip_path']).stem}.wav")
-            if _extract_audio(scene["clip_path"], wav):
-                txt = _whisper_transcribe(wav)
-                if txt and not txt.startswith("["):
-                    all_transcripts.append(txt)
-
-    transcript = " ".join(all_transcripts)
-
-    # Per-scene highlight scoring
+    # Per-scene highlight scoring (face/smile detection is fast and reliable)
     highlight_scores: List[HighlightScore] = []
 
     for scene in scenes:
-        cap = cv2.VideoCapture(scene["clip_path"])
-        native_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-        mid_frame = int(((scene["start_time"] + scene["end_time"]) / 2) * native_fps)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, mid_frame)
-        ret, frame = cap.read()
-        cap.release()
+        try:
+            cap = cv2.VideoCapture(scene["clip_path"])
+            if not cap.isOpened():
+                highlight_scores.append(HighlightScore(
+                    scene_index=scene["scene_index"],
+                    has_face=False,
+                    face_count=0,
+                    smile_score=0.0,
+                    audio_peak_score=0.0,
+                    excitement_score=0.1,
+                ))
+                continue
 
-        if ret:
-            face_count, smile_score = _detect_faces_smiles(frame)
-            has_face = face_count > 0
-        else:
-            face_count, smile_score, has_face = 0, 0.0, False
+            native_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+            mid_frame = int(((scene["start_time"] + scene["end_time"]) / 2) * native_fps)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, mid_frame)
+            ret, frame = cap.read()
+            cap.release()
 
-        # Audio peak for this scene window
-        audio_wav = str(temp_dir / f"audio_{Path(scene['clip_path']).stem}.wav")
-        audio_peak = (
-            _audio_onset_energy(audio_wav, scene["start_time"], scene["end_time"])
-            if Path(audio_wav).exists()
-            else 0.0
-        )
+            if ret:
+                face_count, smile_score = _detect_faces_smiles(frame)
+                has_face = face_count > 0
+            else:
+                face_count, smile_score, has_face = 0, 0.0, False
 
-        excitement = (
-            0.4 * float(has_face)
-            + 0.3 * smile_score
-            + 0.3 * min(1.0, audio_peak)
-        )
+            # Audio peak (optional, skip if audio extraction failed)
+            audio_peak = 0.0
+            if audio_path:
+                try:
+                    audio_peak = _audio_onset_energy(audio_path, scene["start_time"], scene["end_time"])
+                except Exception:
+                    audio_peak = 0.0
 
-        highlight_scores.append(HighlightScore(
-            scene_index=scene["scene_index"],
-            has_face=has_face,
-            face_count=face_count,
-            smile_score=smile_score,
-            audio_peak_score=audio_peak,
-            excitement_score=excitement,
-        ))
+            excitement = (
+                0.5 * float(has_face)
+                + 0.3 * smile_score
+                + 0.2 * min(1.0, audio_peak)
+            )
+
+            highlight_scores.append(HighlightScore(
+                scene_index=scene["scene_index"],
+                has_face=has_face,
+                face_count=face_count,
+                smile_score=smile_score,
+                audio_peak_score=audio_peak,
+                excitement_score=excitement,
+            ))
+        except Exception:
+            # Fallback for any scene processing error
+            highlight_scores.append(HighlightScore(
+                scene_index=scene["scene_index"],
+                has_face=False,
+                face_count=0,
+                smile_score=0.0,
+                audio_peak_score=0.0,
+                excitement_score=0.1,
+            ))
 
     return highlight_scores, transcript, audio_path
 

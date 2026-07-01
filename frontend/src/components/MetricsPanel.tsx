@@ -1,7 +1,8 @@
-import { JobResult } from '../types'
+import type { JobResult } from '../types'
 
 interface MetricsPanelProps {
   result: JobResult
+  onToast: (msg: string, type?: 'success' | 'error') => void
 }
 
 function MetricCard({ label, value, sub, color }: {
@@ -16,7 +17,7 @@ function MetricCard({ label, value, sub, color }: {
   )
 }
 
-export function MetricsPanel({ result }: MetricsPanelProps) {
+export function MetricsPanel({ result, onToast }: MetricsPanelProps) {
   const ev = result.evaluation as Record<string, number> | undefined
   const timings = result.agent_timings
   const totalMs = Object.values(timings).reduce((a, b) => a + b, 0)
@@ -94,7 +95,16 @@ export function MetricsPanel({ result }: MetricsPanelProps) {
           <div className="timing-chart__title">Generated Hashtags</div>
           <div className="hashtag-list">
             {result.hashtags.slice(0, 15).map(tag => (
-              <span key={tag} className="badge badge-purple" style={{ fontSize: '0.7rem' }}>
+              <span 
+                key={tag} 
+                className="badge badge-purple" 
+                style={{ fontSize: '0.7rem', cursor: 'pointer' }}
+                onClick={() => {
+                  navigator.clipboard.writeText(tag);
+                  onToast(`Copied ${tag}`);
+                }}
+                title="Click to copy"
+              >
                 {tag}
               </span>
             ))}

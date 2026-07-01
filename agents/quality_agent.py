@@ -20,10 +20,10 @@ from memory.langgraph_state import QualityScore, SceneMetadata, VideoDirectorSta
 
 # ── Thresholds (configurable via .env) ────────────────────────────────────────
 
-BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "80.0"))       # Laplacian variance
-BRIGHTNESS_MIN = float(os.getenv("BRIGHTNESS_MIN", "40.0"))
-BRIGHTNESS_MAX = float(os.getenv("BRIGHTNESS_MAX", "220.0"))
-MOTION_THRESHOLD = float(os.getenv("MOTION_THRESHOLD", "0.3"))    # Min motion to keep
+BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "15.0"))       # Laplacian variance
+BRIGHTNESS_MIN = float(os.getenv("BRIGHTNESS_MIN", "20.0"))
+BRIGHTNESS_MAX = float(os.getenv("BRIGHTNESS_MAX", "240.0"))
+MOTION_THRESHOLD = float(os.getenv("MOTION_THRESHOLD", "0.1"))    # Min motion to keep
 
 # Composite score weights
 W_BLUR = 0.5
@@ -111,6 +111,7 @@ def analyse_scene_quality(scene: SceneMetadata) -> QualityScore:
     is_usable = (
         avg_blur >= BLUR_THRESHOLD
         and BRIGHTNESS_MIN <= avg_brightness <= BRIGHTNESS_MAX
+        and composite >= 0.1   # minimum composite score guard
     )
 
     return QualityScore(
@@ -151,7 +152,7 @@ def quality_analysis_agent(state: VideoDirectorState) -> VideoDirectorState:
         score = analyse_scene_quality(scene)
         quality_scores.append(score)
         flag = "✓" if score["is_usable"] else "✗"
-        log.debug(
+        log.info(
             f"  Scene {scene['scene_index']:03d} {flag} | "
             f"blur={score['blur_score']:.1f} | "
             f"brightness={score['brightness_score']:.1f} | "
@@ -165,6 +166,16 @@ def quality_analysis_agent(state: VideoDirectorState) -> VideoDirectorState:
     filtered_scenes = [
         s for s in state["scenes"] if s["scene_index"] in usable_indices
     ]
+
+    # Fallback: if nothing passed, use all scenes sorted by composite score
+    if not filtered_scenes:
+        log.warning("No scenes passed quality thresholds — using all scenes as fallback")
+        score_map = {qs["scene_index"]: qs["overall_score"] for qs in quality_scores}
+        filtered_scenes = sorted(
+            state["scenes"],
+            key=lambda s: score_map.get(s["scene_index"], 0.0),
+            reverse=True,
+        )
 
     log.success(
         f"Filtered: {len(filtered_scenes)}/{len(state['scenes'])} scenes passed quality check"

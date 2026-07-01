@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { UploadedClip } from '../types'
+import type { UploadedClip } from '../types'
 import { uploadVideo, uploadBrandPdf } from '../api'
 
 interface UploadZoneProps {
@@ -25,7 +25,13 @@ export function UploadZone({ onClipsReady, onBrandPdf }: UploadZoneProps) {
         setUploadProgress(p => ({ ...p, [file.name]: 50 }))
         const data = await uploadVideo(file)
         const previewUrl = URL.createObjectURL(file)
-        newClips.push({ ...data, previewUrl })
+        newClips.push({
+          fileId: data.file_id,
+          filename: data.filename,
+          sizeBytes: data.size_bytes,
+          serverPath: data.server_path,
+          previewUrl
+        })
         setUploadProgress(p => ({ ...p, [file.name]: 100 }))
       } catch (err) {
         console.error('Upload failed:', err)
@@ -79,6 +85,7 @@ export function UploadZone({ onClipsReady, onBrandPdf }: UploadZoneProps) {
           multiple
           style={{ display: 'none' }}
           onChange={e => handleVideoFiles(Array.from(e.target.files || []))}
+          title="Upload video files"
         />
         {uploading && <div className="drop-zone__spinner" />}
       </div>
@@ -137,6 +144,7 @@ export function UploadZone({ onClipsReady, onBrandPdf }: UploadZoneProps) {
           accept=".pdf"
           style={{ display: 'none' }}
           onChange={e => { const f = e.target.files?.[0]; if (f) handleBrandFile(f) }}
+          title="Upload brand guide PDF"
         />
       </div>
 

@@ -37,9 +37,11 @@ def _get_job(job_id: str) -> dict:
     return _jobs[job_id]
 
 
-def _run_pipeline_sync(job_id: str, clips: list, request: CreateJobRequest):
+def _run_pipeline_sync(job_id: str, clips: list, request: CreateJobRequest, loop: asyncio.AbstractEventLoop):
     """Runs the pipeline in a background thread."""
+    from api.routes.ws import manager
     from pipeline.graph import run_pipeline
+    import datetime
 
     AGENT_ORDER = [
         "scene_agent", "quality_agent", "highlight_agent",
@@ -48,14 +50,32 @@ def _run_pipeline_sync(job_id: str, clips: list, request: CreateJobRequest):
     ]
 
     def progress_callback(agent_name: str, status: str, attempt: int):
-        if job_id in _jobs:
-            idx = AGENT_ORDER.index(agent_name) if agent_name in AGENT_ORDER else 0
-            pct = ((idx + (1 if status == "done" else 0)) / len(AGENT_ORDER)) * 100
-            _jobs[job_id]["current_agent"] = agent_name
-            _jobs[job_id]["agent_statuses"][agent_name] = {
-                "status": status, "attempt": attempt
-            }
-            _jobs[job_id]["progress_pct"] = pct
+        if job_id not in _jobs:
+            return
+        idx = AGENT_ORDER.index(agent_name) if agent_name in AGENT_ORDER else 0
+        pct = ((idx + (1 if status == "done" else 0)) / len(AGENT_ORDER)) * 100
+        _jobs[job_id]["current_agent"] = agent_name
+        _jobs[job_id]["agent_statuses"][agent_name] = {
+            "status": status, "attempt": attempt
+        }
+        _jobs[job_id]["progress_pct"] = pct
+
+        # Broadcast over WebSocket — fire-and-forget from sync thread using main loop
+        payload = {
+            "type": "progress",
+            "job_id": job_id,
+            "agent": agent_name,
+            "status": status,
+            "attempt": attempt,
+            "timestamp": datetime.datetime.utcnow().isoformat(),
+            "progress_pct": pct,
+            "message": "",
+        }
+        try:
+            if loop and loop.is_running():
+                asyncio.run_coroutine_threadsafe(manager.broadcast(job_id, payload), loop)
+        except Exception:
+            pass
 
     _jobs[job_id]["status"] = JobStatus.running
 
@@ -72,7 +92,25 @@ def _run_pipeline_sync(job_id: str, clips: list, request: CreateJobRequest):
         _jobs[job_id]["status"] = JobStatus.done
         _jobs[job_id]["final_state"] = final_state
         _jobs[job_id]["progress_pct"] = 100.0
+        
+        try:
+            if loop and loop.is_running():
+                payload = {
+                    "type": "progress",
+                    "job_id": job_id,
+                    "agent": "pipeline",
+                    "status": "done",
+                    "attempt": 0,
+                    "timestamp": datetime.datetime.utcnow().isoformat(),
+                    "progress_pct": 100.0,
+                    "message": "Pipeline completed successfully",
+                }
+                asyncio.run_coroutine_threadsafe(manager.broadcast(job_id, payload), loop)
+        except Exception:
+            pass
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         _jobs[job_id]["status"] = JobStatus.failed
         _jobs[job_id]["error"] = str(e)
 
@@ -81,13 +119,12 @@ def _run_pipeline_sync(job_id: str, clips: list, request: CreateJobRequest):
 async def create_job(
     request: CreateJobRequest,
     background_tasks: BackgroundTasks,
-    clips: str = "",  # comma-separated server paths from upload responses
 ):
     """
     Create and enqueue a new video generation job.
-    Expects clip server_paths as comma-separated query param.
+    Clip paths are provided in the request body as clip_paths.
     """
-    clip_paths = [p.strip() for p in clips.split(",") if p.strip()]
+    clip_paths = [p.strip() for p in request.clip_paths if p.strip()]
     if not clip_paths:
         raise HTTPException(400, "At least one clip path required")
 
@@ -107,7 +144,8 @@ async def create_job(
         "created_at": time.time(),
     }
 
-    background_tasks.add_task(_run_pipeline_sync, job_id, clip_paths, request)
+    loop = asyncio.get_running_loop()
+    background_tasks.add_task(_run_pipeline_sync, job_id, clip_paths, request, loop)
 
     return JobCreateResponse(
         job_id=job_id,
@@ -159,7 +197,7 @@ async def get_job_result(job_id: str):
     def _url(path: Optional[str]) -> Optional[str]:
         if not path or not Path(path).exists():
             return None
-        return f"/api/jobs/{job_id}/download/{Path(path).name}"
+        return f"/outputs/{Path(path).name}"
 
     return JobResultResponse(
         job_id=job_id,

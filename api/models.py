@@ -33,6 +33,7 @@ class CreateJobRequest(BaseModel):
     target_duration: int = Field(30, ge=10, le=300, description="Target output duration in seconds")
     platform: Platform = Platform.instagram
     brand_pdf_path: Optional[str] = Field(None, description="Server path to uploaded brand PDF")
+    clip_paths: List[str] = Field(default_factory=list, description="Server paths to uploaded video clips")
 
 
 # ── Response Models ────────────────────────────────────────────────────────────

@@ -25,13 +25,13 @@ export async function createJob(params: {
   platform: string
   brandPdfPath?: string
 }) {
-  const clipStr = params.clips.join(',')
-  const url = `${BASE}/jobs?clips=${encodeURIComponent(clipStr)}`
+  const url = `${BASE}/jobs`
   const body = {
     user_prompt: params.userPrompt,
     target_duration: params.targetDuration,
     platform: params.platform,
     brand_pdf_path: params.brandPdfPath,
+    clip_paths: params.clips,
   }
   const res = await fetch(url, {
     method: 'POST',

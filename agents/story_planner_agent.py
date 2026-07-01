@@ -129,6 +129,10 @@ def plan_story(
     state: VideoDirectorState,
 ) -> tuple[List[ClipPlan], float]:
     """Call Gemini Pro to generate the story arc. Returns (clip_plans, total_duration)."""
+    # Fallback if no ranked scenes
+    if not state["ranked_scenes"]:
+        return [], 0.0
+
     llm = ChatGoogleGenerativeAI(
         model=GEMINI_PLANNER_MODEL,
         temperature=0.4,
@@ -159,13 +163,23 @@ def plan_story(
 
     # Build scene index lookup
     scene_map = {s["scene_index"]: s for s in state["ranked_scenes"]}
+    used_scenes = set()
 
     clip_plans: List[ClipPlan] = []
     cursor = 0.0
     for item in data.get("story_arc", []):
         scene = scene_map.get(item["scene_index"])
         if not scene:
-            continue
+            # Fallback: pick the highest ranked scene not yet used
+            for fb_scene in state["ranked_scenes"]:
+                if fb_scene["scene_index"] not in used_scenes:
+                    scene = fb_scene
+                    item["scene_index"] = scene["scene_index"]
+                    break
+            if not scene:
+                continue
+        
+        used_scenes.add(scene["scene_index"])
         start = float(item.get("start_time", scene["start_time"]))
         end = float(item.get("end_time", scene["end_time"]))
         duration = end - start
@@ -192,21 +206,40 @@ def _fallback_story_arc(state: VideoDirectorState) -> dict:
     captions = state.get("captions", [])
     scenes = state["ranked_scenes"]
     clips_needed = max(1, target // 4)
-    selected = scenes[:clips_needed]
 
     arc = []
-    for i, sc in enumerate(selected):
-        clip_dur = min(sc["duration"], 4.0)
-        arc.append({
-            "order": i + 1,
-            "scene_index": sc["scene_index"],
-            "start_time": sc["start_time"],
-            "end_time": sc["start_time"] + clip_dur,
-            "transition": "cut" if i < len(selected) - 1 else "fade",
-            "caption": captions[i] if i < len(captions) else f"Scene {i+1}",
-        })
+    cursor = 0.0
+    order = 1
 
-    return {"story_arc": arc, "planned_duration": sum(4.0 for _ in arc)}
+    for sc in scenes:
+        starts = []
+        cur_st = sc["start_time"]
+        while cur_st < sc["end_time"]:
+            clip_dur = min(4.0, sc["end_time"] - cur_st)
+            if clip_dur >= 2.0:
+                starts.append((cur_st, clip_dur))
+            cur_st += 4.0
+            
+        for st, cdur in starts:
+            arc.append({
+                "order": order,
+                "scene_index": sc["scene_index"],
+                "start_time": st,
+                "end_time": st + cdur,
+                "transition": "cut",
+                "caption": captions[order-1] if order-1 < len(captions) else f"Scene {order}",
+            })
+            cursor += cdur
+            order += 1
+            if len(arc) >= clips_needed:
+                break
+        if len(arc) >= clips_needed:
+            break
+
+    if arc:
+        arc[-1]["transition"] = "fade"
+
+    return {"story_arc": arc, "planned_duration": cursor}
 
 
 # ── LangGraph Node ─────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { AgentInfo } from '../types'
+import type { AgentInfo } from '../types'
 
 const AGENT_COLORS: Record<string, string> = {
   scene_agent:          'var(--agent-scene)',

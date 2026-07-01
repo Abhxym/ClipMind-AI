@@ -145,9 +145,10 @@ def brand_rag_agent(state: VideoDirectorState) -> VideoDirectorState:
     reranked_texts = [r["text"] for r in reranked]
     reranked_ids = [retrieved_ids[r["original_index"]] for r in reranked]
 
+    scores_str = [f'{r["score"]:.3f}' for r in reranked]
     log.info(
         f"Reranker lift: P@{TOP_K_RETRIEVE}→{TOP_K_RERANK} | "
-        f"scores: {[f'{r[\"score\"]:.3f}' for r in reranked]}"
+        f"scores: {scores_str}"
     )
 
     brand_style = _parse_brand_from_chunks(reranked_texts, tone)

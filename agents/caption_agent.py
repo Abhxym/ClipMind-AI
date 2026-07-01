@@ -141,13 +141,23 @@ def caption_generator_agent(state: VideoDirectorState) -> VideoDirectorState:
 
     top_scenes = state["ranked_scenes"][:MAX_SCENES_TO_SEND]
 
-    result = generate_captions(
-        user_prompt=state["user_prompt"],
-        platform=state["platform"],
-        target_duration=state["target_duration"],
-        transcript=state["transcript"],
-        top_scenes=top_scenes,
-    )
+    # Fallback if no scenes available
+    if not top_scenes:
+        log.warning("No ranked scenes available — using fallback captions")
+        result = {
+            "title": f"Epic {state['platform'].title()} Reel",
+            "captions": [],
+            "hashtags": ["#viral", "#reel", "#video"],
+            "tone": "energetic",
+        }
+    else:
+        result = generate_captions(
+            user_prompt=state["user_prompt"],
+            platform=state["platform"],
+            target_duration=state["target_duration"],
+            transcript=state["transcript"],
+            top_scenes=top_scenes,
+        )
 
     title = result.get("title", "")
     captions = result.get("captions", [])

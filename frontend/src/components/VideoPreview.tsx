@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { JobResult } from '../types'
+import type { JobResult } from '../types'
 
 interface VideoPreviewProps {
   result: JobResult
@@ -16,7 +16,9 @@ export function VideoPreview({ result }: VideoPreviewProps) {
     setPlaying(!playing)
   }
 
-  const videoUrl = result.final_video_url
+  const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  const videoUrl = result.final_video_url ? new URL(result.final_video_url, backendUrl).href : null;
+  const thumbUrl = result.final_thumbnail_url ? new URL(result.final_thumbnail_url, backendUrl).href : null;
 
   return (
     <div className="video-preview">
@@ -52,15 +54,15 @@ export function VideoPreview({ result }: VideoPreviewProps) {
             <video
               ref={videoRef}
               src={videoUrl}
-              poster={result.final_thumbnail_url || undefined}
+              poster={thumbUrl || undefined}
               className="vp-video"
               controls
               onPlay={() => setPlaying(true)}
               onPause={() => setPlaying(false)}
             />
           </>
-        ) : result.final_thumbnail_url ? (
-          <img src={result.final_thumbnail_url} alt="Reel thumbnail" className="vp-thumb" />
+        ) : thumbUrl ? (
+          <img src={thumbUrl} alt="Reel thumbnail" className="vp-thumb" />
         ) : (
           <div className="vp-placeholder">
             <div style={{ fontSize: '3rem' }}>🎬</div>

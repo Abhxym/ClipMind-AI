@@ -12,6 +12,17 @@ const AGENT_ORDER = [
   'brand_rag_agent', 'story_planner_agent', 'editing_agent', 'export_agent',
 ]
 
+const AGENT_META_LABELS: Record<string, string> = {
+  scene_agent:         'Scene Extraction',
+  quality_agent:       'Quality Analysis',
+  highlight_agent:     'Highlight Detection',
+  caption_agent:       'Caption Generator',
+  brand_rag_agent:     'Brand RAG',
+  story_planner_agent: 'Story Planner',
+  editing_agent:       'Video Editing',
+  export_agent:        'Exporting',
+}
+
 const defaultAgents = (): AgentInfo[] =>
   AGENT_ORDER.map(name => ({
     name,
@@ -37,7 +48,13 @@ export default function App() {
   const [currentAgent, setCurrentAgent] = useState<string | null>(null)
   const [result, setResult] = useState<JobResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+
+  const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 3000)
+  }, [])
 
   const updateAgent = useCallback((agentName: string, status: AgentInfo['status'], elapsedMs?: number) => {
     setAgents(prev => prev.map(a =>
@@ -49,10 +66,21 @@ export default function App() {
     const m = msg as WSMessage
     if (m.type === 'progress' && m.agent) {
       setCurrentAgent(m.agent)
-      if (m.status === 'running') updateAgent(m.agent, 'running')
-      if (m.status === 'done')    updateAgent(m.agent, 'done')
-      if (m.status === 'error')   updateAgent(m.agent, 'error')
-      if (m.progress_pct !== undefined) setProgress(m.progress_pct)
+      if (m.status === 'running') {
+        updateAgent(m.agent, 'running')
+        // Set progress to start of this agent's slice
+        const idx = AGENT_ORDER.indexOf(m.agent)
+        if (idx >= 0) setProgress((idx / AGENT_ORDER.length) * 100)
+      }
+      if (m.status === 'done') {
+        updateAgent(m.agent, 'done')
+        // Set progress to end of this agent's slice
+        const idx = AGENT_ORDER.indexOf(m.agent)
+        if (idx >= 0) setProgress(((idx + 1) / AGENT_ORDER.length) * 100)
+      }
+      if (m.status === 'error') updateAgent(m.agent, 'error')
+      // Also accept explicit progress_pct if server sends it
+      if (m.progress_pct !== undefined && m.progress_pct > 0) setProgress(m.progress_pct)
     }
   }, [updateAgent])
 
@@ -94,7 +122,11 @@ export default function App() {
             setStage('error')
             ws.close()
           }
-        } catch (_) { /* still processing */ }
+        } catch (e: unknown) {
+          // 202 means still processing — ignore; anything else surface it
+          const msg = e instanceof Error ? e.message : String(e)
+          if (!msg.includes('202')) console.warn('Poll error:', msg)
+        }
       }, 5000)
     } catch (e: unknown) {
       const err = e instanceof Error ? e.message : String(e)
@@ -116,6 +148,7 @@ export default function App() {
     setProgress(0)
     setResult(null)
     setError(null)
+    setToast(null)
     wsRef.current?.close()
   }
 
@@ -140,6 +173,20 @@ export default function App() {
             </div>
           </div>
         </div>
+        {/* ── Navbar progress bar (only during processing) ── */}
+        {stage === 'processing' && (
+          <div className="navbar-progress">
+            <div
+              className="navbar-progress-fill"
+              style={{ width: `${progress}%` }}
+            />
+            <div className="navbar-progress-label">
+              {AGENT_ORDER.indexOf(currentAgent ?? '') >= 0
+                ? `${AGENT_META_LABELS[currentAgent!]} — ${progress.toFixed(0)}%`
+                : `Starting… ${progress.toFixed(0)}%`}
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="app-main container">
@@ -154,6 +201,74 @@ export default function App() {
             <div className="upload-layout">
               {/* Left: Upload */}
               <div className="upload-col">
+                <div className="clip-guide card">
+                  <div className="clip-guide__title">📋 What clips work best</div>
+                  <div className="clip-guide__grid">
+                    <div className="clip-guide__item clip-guide__item--good">
+                      <div className="clip-guide__item-icon">✅</div>
+                      <div>
+                        <div className="clip-guide__item-label">Good lighting</div>
+                        <div className="clip-guide__item-desc">Bright, evenly lit scenes — natural light or studio</div>
+                      </div>
+                    </div>
+                    <div className="clip-guide__item clip-guide__item--good">
+                      <div className="clip-guide__item-icon">✅</div>
+                      <div>
+                        <div className="clip-guide__item-label">3–15 sec clips</div>
+                        <div className="clip-guide__item-desc">Short punchy clips get the best scene cuts</div>
+                      </div>
+                    </div>
+                    <div className="clip-guide__item clip-guide__item--good">
+                      <div className="clip-guide__item-icon">✅</div>
+                      <div>
+                        <div className="clip-guide__item-label">People &amp; faces</div>
+                        <div className="clip-guide__item-desc">Face/smile detection boosts highlight scores</div>
+                      </div>
+                    </div>
+                    <div className="clip-guide__item clip-guide__item--good">
+                      <div className="clip-guide__item-icon">✅</div>
+                      <div>
+                        <div className="clip-guide__item-label">Clear audio</div>
+                        <div className="clip-guide__item-desc">Whisper transcribes speech for smarter captions</div>
+                      </div>
+                    </div>
+                    <div className="clip-guide__item clip-guide__item--bad">
+                      <div className="clip-guide__item-icon">❌</div>
+                      <div>
+                        <div className="clip-guide__item-label">Blurry / shaky</div>
+                        <div className="clip-guide__item-desc">Low Laplacian score — filtered out by quality agent</div>
+                      </div>
+                    </div>
+                    <div className="clip-guide__item clip-guide__item--bad">
+                      <div className="clip-guide__item-icon">❌</div>
+                      <div>
+                        <div className="clip-guide__item-label">Very dark / overexposed</div>
+                        <div className="clip-guide__item-desc">Brightness outside 20–240 range gets low scores</div>
+                      </div>
+                    </div>
+                    <div className="clip-guide__item clip-guide__item--bad">
+                      <div className="clip-guide__item-icon">❌</div>
+                      <div>
+                        <div className="clip-guide__item-label">Clips &gt; 500 MB</div>
+                        <div className="clip-guide__item-desc">Split large files before uploading</div>
+                      </div>
+                    </div>
+                    <div className="clip-guide__item clip-guide__item--tip">
+                      <div className="clip-guide__item-icon">💡</div>
+                      <div>
+                        <div className="clip-guide__item-label">10–20 clips ideal</div>
+                        <div className="clip-guide__item-desc">Gives the story planner enough variety to build a narrative</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="clip-guide__formats">
+                    <span className="badge badge-purple">MP4</span>
+                    <span className="badge badge-blue">MOV</span>
+                    <span className="badge badge-green">AVI</span>
+                    <span className="badge badge-yellow">MKV</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>· up to 500 MB each</span>
+                  </div>
+                </div>
                 <UploadZone
                   onClipsReady={setClips}
                   onBrandPdf={setBrandPdfPath}
@@ -165,7 +280,7 @@ export default function App() {
                 <div className="card">
                   <h3 style={{ marginBottom: 16 }}>🎯 Director's Brief</h3>
 
-                  <label className="form-label">Your Vision</label>
+                  <label className="form-label" htmlFor="prompt-input">Your Vision</label>
                   <textarea
                     id="prompt-input"
                     className="textarea"
@@ -173,16 +288,18 @@ export default function App() {
                     value={prompt}
                     onChange={e => setPrompt(e.target.value)}
                     placeholder="Create a 30-second energetic Instagram reel for a college hackathon..."
+                    title="Your Vision"
                   />
 
                   <div className="form-row" style={{ marginTop: 16 }}>
                     <div style={{ flex: 1 }}>
-                      <label className="form-label">Platform</label>
+                      <label className="form-label" htmlFor="platform-select">Platform</label>
                       <select
                         id="platform-select"
                         className="select"
                         value={platform}
                         onChange={e => setPlatform(e.target.value as Platform)}
+                        title="Platform"
                       >
                         <option value="instagram">📱 Instagram</option>
                         <option value="tiktok">🎵 TikTok</option>
@@ -191,7 +308,7 @@ export default function App() {
                       </select>
                     </div>
                     <div style={{ width: 120 }}>
-                      <label className="form-label">Duration (s)</label>
+                      <label className="form-label" htmlFor="duration-input">Duration (s)</label>
                       <input
                         id="duration-input"
                         type="number"
@@ -200,6 +317,7 @@ export default function App() {
                         min={10}
                         max={300}
                         onChange={e => setDuration(Number(e.target.value))}
+                        title="Duration in seconds"
                       />
                     </div>
                   </div>
@@ -266,14 +384,23 @@ export default function App() {
               <div className="processing-info card">
                 <div className="pi-title">What's happening</div>
                 <div className="pi-steps">
-                  <div className="pi-step">🎬 Extracting scenes from your clips using OpenCV</div>
-                  <div className="pi-step">🔍 Scoring blur, brightness, and motion quality</div>
-                  <div className="pi-step">✨ Detecting faces, smiles, and audio peaks</div>
-                  <div className="pi-step">💬 Generating captions via Gemini Flash</div>
-                  <div className="pi-step">🧠 Retrieving brand style via FAISS + BGE Reranker</div>
-                  <div className="pi-step">📖 Planning narrative arc with Gemini Pro</div>
-                  <div className="pi-step">✂️  Editing with FFmpeg — transitions, music, subs</div>
-                  <div className="pi-step">📤 Exporting final reel + evaluation metrics</div>
+                  {[
+                    "🎬 Extracting scenes from your clips using OpenCV",
+                    "🔍 Scoring blur, brightness, and motion quality",
+                    "✨ Detecting faces, smiles, and audio peaks",
+                    "💬 Generating captions via Gemini Flash",
+                    "🧠 Retrieving brand style via FAISS + BGE Reranker",
+                    "📖 Planning narrative arc with Gemini Pro",
+                    "✂️ Editing with FFmpeg — transitions, music, subs",
+                    "📤 Exporting final reel + evaluation metrics"
+                  ].map((step, idx) => {
+                    const currentIdx = currentAgent ? AGENT_ORDER.indexOf(currentAgent) : -1;
+                    let className = "pi-step";
+                    if (idx < currentIdx || currentAgent === 'pipeline') className += " pi-step--done";
+                    else if (idx === currentIdx) className += " pi-step--active";
+                    
+                    return <div key={idx} className={className}>{step}</div>
+                  })}
                 </div>
               </div>
             </div>
@@ -294,7 +421,7 @@ export default function App() {
               </div>
               <div className="done-right">
                 <AgentGraph agents={agents} />
-                <MetricsPanel result={result} />
+                <MetricsPanel result={result} onToast={showToast} />
               </div>
             </div>
           </div>
@@ -312,6 +439,14 @@ export default function App() {
                 <button className="btn btn-ghost" onClick={reset}>Start Over</button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ── Toast Notification ───────────────────────── */}
+        {toast && (
+          <div className={`toast toast--${toast.type}`}>
+            {toast.type === 'success' ? '✅ ' : '❌ '}
+            {toast.msg}
           </div>
         )}
       </main>

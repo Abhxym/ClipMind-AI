@@ -26,9 +26,9 @@ for d in ["uploads", "outputs", "temp", "logs/failed_runs", "pipeline"]:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("🎬 AI Video Director API starting up...")
+    print("AI Video Director API starting up...")
     yield
-    print("👋 AI Video Director API shutting down")
+    print("AI Video Director API shutting down")
 
 
 app = FastAPI(
@@ -47,6 +47,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from fastapi import Request
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    
+    if request.url.path.startswith("/outputs/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    else:
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+
+    if "x-xss-protection" in response.headers:
+        del response.headers["x-xss-protection"]
+    if "Expires" in response.headers:
+        del response.headers["Expires"]
+
+    ct = response.headers.get("Content-Type", "")
+    if ct == "application/json":
+        response.headers["Content-Type"] = "application/json; charset=utf-8"
+
+    return response
+
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 app.include_router(upload.router)

@@ -1,14 +1,13 @@
 """
 Scene Extraction Agent — AI Video Director
 ==========================================
-Samples frames from each uploaded clip, detects scene boundaries via
-OpenCV histogram comparison, and produces a list of SceneMetadata dicts.
+Detects scene boundaries via OpenCV histogram comparison.
+Optimised: samples at 2fps max, merges short scenes, skips corrupt clips.
 """
 
 from __future__ import annotations
 
 import os
-import time
 from pathlib import Path
 from typing import List
 
@@ -22,13 +21,13 @@ from memory.langgraph_state import SceneMetadata, VideoDirectorState
 THUMBNAIL_DIR = Path("temp/thumbnails")
 THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
 
-# Scene-change detection threshold (0–1): lower = more sensitive
-SCENE_CHANGE_THRESHOLD = float(os.getenv("SCENE_CHANGE_THRESHOLD", "0.4"))
-FRAME_SAMPLE_FPS = float(os.getenv("FRAME_SAMPLE_FPS", "1"))
+SCENE_CHANGE_THRESHOLD = float(os.getenv("SCENE_CHANGE_THRESHOLD", "0.35"))
+FRAME_SAMPLE_FPS = float(os.getenv("FRAME_SAMPLE_FPS", "2"))
+MIN_SCENE_DURATION = float(os.getenv("MIN_SCENE_DURATION", "1.5"))  # seconds
+MAX_SCENE_DURATION = float(os.getenv("MAX_SCENE_DURATION", "10.0"))  # seconds
 
 
 def _histogram_diff(frame_a: np.ndarray, frame_b: np.ndarray) -> float:
-    """Compute normalised histogram difference between two BGR frames."""
     hist_a = cv2.calcHist([cv2.cvtColor(frame_a, cv2.COLOR_BGR2HSV)],
                           [0, 1], None, [50, 60], [0, 180, 0, 256])
     hist_b = cv2.calcHist([cv2.cvtColor(frame_b, cv2.COLOR_BGR2HSV)],
@@ -39,7 +38,6 @@ def _histogram_diff(frame_a: np.ndarray, frame_b: np.ndarray) -> float:
 
 
 def _save_thumbnail(frame: np.ndarray, scene_index: int, job_id: str) -> str:
-    """Save a scene thumbnail as JPEG and return its path."""
     thumb_dir = THUMBNAIL_DIR / job_id
     thumb_dir.mkdir(parents=True, exist_ok=True)
     path = str(thumb_dir / f"scene_{scene_index:04d}.jpg")
@@ -52,14 +50,6 @@ def extract_scenes_from_clip(
     job_id: str,
     base_scene_index: int = 0,
 ) -> List[SceneMetadata]:
-    """
-    Extract scenes from a single video clip.
-
-    Strategy:
-    - Sample 1 frame per second (configurable)
-    - Compare consecutive frames via HSV histogram distance
-    - When distance > threshold → new scene boundary detected
-    """
     cap = cv2.VideoCapture(clip_path)
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video: {clip_path}")
@@ -68,100 +58,109 @@ def extract_scenes_from_clip(
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    resolution = (width, height)
+    total_duration = total_frames / native_fps
     sample_every = max(1, int(native_fps / FRAME_SAMPLE_FPS))
 
-    scenes: List[SceneMetadata] = []
+    # Collect boundary timestamps
+    boundaries: List[float] = [0.0]
     prev_frame: np.ndarray | None = None
-    scene_start_time = 0.0
-    scene_idx = base_scene_index
-    rep_frame: np.ndarray | None = None
-
     frame_num = 0
-    while True:
+
+    while frame_num < total_frames:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
         ret, frame = cap.read()
         if not ret:
             break
-        if frame_num % sample_every != 0:
-            frame_num += 1
-            continue
-
-        current_time = frame_num / native_fps
-
+            
         if prev_frame is not None:
             diff = _histogram_diff(prev_frame, frame)
+            t = frame_num / native_fps
+            time_since_last = t - boundaries[-1]
+            
             if diff > SCENE_CHANGE_THRESHOLD:
-                # Scene boundary detected
-                thumb = _save_thumbnail(
-                    rep_frame if rep_frame is not None else prev_frame,
-                    scene_idx, job_id
-                )
-                scenes.append(SceneMetadata(
-                    clip_path=clip_path,
-                    scene_index=scene_idx,
-                    start_time=scene_start_time,
-                    end_time=current_time,
-                    duration=current_time - scene_start_time,
-                    thumbnail_path=thumb,
-                    fps=native_fps,
-                    resolution=resolution,
-                ))
-                scene_idx += 1
-                scene_start_time = current_time
-                rep_frame = frame.copy()
-        else:
-            rep_frame = frame.copy()
-
+                # Only add boundary if it's far enough from the last one
+                if time_since_last >= MIN_SCENE_DURATION:
+                    boundaries.append(t)
+            elif time_since_last >= MAX_SCENE_DURATION:
+                # Force a cut if the scene is getting too long
+                boundaries.append(t)
+                
         prev_frame = frame.copy()
-        frame_num += 1
+        frame_num += sample_every
 
-    # Close out the final scene
-    if prev_frame is not None:
-        end_time = total_frames / native_fps
-        thumb = _save_thumbnail(
-            rep_frame if rep_frame is not None else prev_frame,
-            scene_idx, job_id
-        )
+    cap.release()
+    if total_duration - boundaries[-1] < MIN_SCENE_DURATION and len(boundaries) > 1:
+        boundaries[-1] = total_duration
+    else:
+        boundaries.append(total_duration)
+
+    # Build scene list from boundaries
+    scenes: List[SceneMetadata] = []
+    for i in range(len(boundaries) - 1):
+        start = boundaries[i]
+        end = boundaries[i + 1]
+        duration = end - start
+        if duration < MIN_SCENE_DURATION:
+            continue
+
+        scene_idx = base_scene_index + len(scenes)
+
+        # Extract representative frame for thumbnail
+        cap2 = cv2.VideoCapture(clip_path)
+        cap2.set(cv2.CAP_PROP_POS_FRAMES, int((start + duration * 0.3) * native_fps))
+        ret, thumb_frame = cap2.read()
+        cap2.release()
+        thumb_path = _save_thumbnail(thumb_frame if ret else np.zeros((180, 320, 3), np.uint8),
+                                     scene_idx, job_id)
+
         scenes.append(SceneMetadata(
             clip_path=clip_path,
             scene_index=scene_idx,
-            start_time=scene_start_time,
-            end_time=end_time,
-            duration=end_time - scene_start_time,
-            thumbnail_path=thumb,
+            start_time=round(start, 3),
+            end_time=round(end, 3),
+            duration=round(duration, 3),
+            thumbnail_path=thumb_path,
             fps=native_fps,
-            resolution=resolution,
+            resolution=(width, height),
         ))
 
-    cap.release()
+    # Fallback: if no scenes detected, treat whole clip as one scene
+    if not scenes and total_duration >= MIN_SCENE_DURATION:
+        cap2 = cv2.VideoCapture(clip_path)
+        cap2.set(cv2.CAP_PROP_POS_FRAMES, int(total_duration * 0.3 * native_fps))
+        ret, thumb_frame = cap2.read()
+        cap2.release()
+        thumb_path = _save_thumbnail(thumb_frame if ret else np.zeros((180, 320, 3), np.uint8),
+                                     base_scene_index, job_id)
+        scenes.append(SceneMetadata(
+            clip_path=clip_path,
+            scene_index=base_scene_index,
+            start_time=0.0,
+            end_time=round(total_duration, 3),
+            duration=round(total_duration, 3),
+            thumbnail_path=thumb_path,
+            fps=native_fps,
+            resolution=(width, height),
+        ))
+
     return scenes
 
 
-# ── LangGraph Node ─────────────────────────────────────────────────────────────
-
 def scene_extraction_agent(state: VideoDirectorState) -> VideoDirectorState:
-    """
-    LangGraph node: Scene Extraction Agent.
-    Reads:  state.raw_clips
-    Writes: state.scenes, state.scene_count, state.current_agent,
-            state.completed_agents, state.agent_timings
-    """
     job_id = state["job_id"]
     log = AgentLogger("scene_agent", job_id)
     log.start(f"Extracting scenes from {len(state['raw_clips'])} clips")
 
     all_scenes: List[SceneMetadata] = []
-    global_scene_idx = 0
 
     for clip_path in state["raw_clips"]:
         log.info(f"Processing: {Path(clip_path).name}")
         try:
-            clip_scenes = extract_scenes_from_clip(clip_path, job_id, global_scene_idx)
+            clip_scenes = extract_scenes_from_clip(clip_path, job_id, len(all_scenes))
             all_scenes.extend(clip_scenes)
-            global_scene_idx += len(clip_scenes)
-            log.debug(f"  → {len(clip_scenes)} scenes detected")
+            log.debug(f"  → {len(clip_scenes)} scenes")
         except Exception as exc:
-            log.warning(f"Skipping clip {clip_path}: {exc}")
+            log.warning(f"Skipping {Path(clip_path).name}: {exc}")
 
     log.success(f"Total scenes extracted: {len(all_scenes)}")
 
@@ -171,8 +170,5 @@ def scene_extraction_agent(state: VideoDirectorState) -> VideoDirectorState:
         "scene_count": len(all_scenes),
         "current_agent": "scene_agent",
         "completed_agents": ["scene_agent"],
-        "agent_timings": {
-            **state.get("agent_timings", {}),
-            "scene_agent": log.elapsed_ms(),
-        },
+        "agent_timings": {**state.get("agent_timings", {}), "scene_agent": log.elapsed_ms()},
     }

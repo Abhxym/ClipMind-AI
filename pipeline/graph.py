@@ -42,7 +42,7 @@ CHECKPOINT_PATH = os.getenv("SQLITE_CHECKPOINT_PATH", "pipeline/checkpoints.db")
 def _setup_langsmith():
     if os.getenv("LANGCHAIN_API_KEY") and os.getenv("LANGCHAIN_TRACING_V2") == "true":
         os.environ.setdefault("LANGCHAIN_PROJECT", "ai-video-director")
-        print("🔭 LangSmith tracing enabled")
+        print("LangSmith tracing enabled")
 
 
 _setup_langsmith()
@@ -117,9 +117,9 @@ def _with_retry(
 # ── Conditional edges ──────────────────────────────────────────────────────────
 
 def _should_continue_after_quality(state: VideoDirectorState) -> str:
-    """Abort pipeline if no usable scenes found after quality filtering."""
+    """If no scenes passed quality filter, fall back to all scenes ranked by composite score."""
     if state.get("filtered_count", 0) == 0:
-        return "export_error"
+        return "highlight_agent"  # fallback: let highlight agent work on all scenes
     return "highlight_agent"
 
 
@@ -245,7 +245,9 @@ def compile_pipeline(
     graph = build_graph(progress_callback)
 
     if use_checkpointing:
-        checkpointer = SqliteSaver.from_conn_string(CHECKPOINT_PATH)
+        import sqlite3
+        conn = sqlite3.connect(CHECKPOINT_PATH, check_same_thread=False)
+        checkpointer = SqliteSaver(conn)
         app = graph.compile(checkpointer=checkpointer)
     else:
         app = graph.compile()

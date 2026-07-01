@@ -26,8 +26,9 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 def _generate_thumbnail(video_path: str, out_path: str) -> bool:
     """Extract the first frame as a thumbnail."""
+    import imageio_ffmpeg
     cmd = [
-        "ffmpeg", "-y",
+        imageio_ffmpeg.get_ffmpeg_exe(), "-y",
         "-ss", "0",
         "-i", video_path,
         "-frames:v", "1",
@@ -82,8 +83,24 @@ def export_agent(state: VideoDirectorState) -> VideoDirectorState:
     log.start("Exporting final reel")
 
     edited_path = state.get("edited_video_path")
-    if not edited_path or not Path(edited_path).exists():
-        raise RuntimeError("No edited video found for export")
+    if not edited_path:
+        raise RuntimeError("No edited_video_path in state")
+
+    # Normalize path for Windows
+    edited_path = str(Path(edited_path))
+    if not Path(edited_path).exists():
+        log.warning(f"Edited video not found at: {edited_path}")
+        # Try to find it in temp directory
+        temp_dir = Path("temp") / job_id / "editing"
+        if temp_dir.exists():
+            mp4_files = list(temp_dir.glob("*.mp4"))
+            if mp4_files:
+                edited_path = str(mp4_files[-1])  # Use the last (most complete) file
+                log.info(f"Found fallback video: {edited_path}")
+            else:
+                raise RuntimeError(f"No MP4 files found in {temp_dir}")
+        else:
+            raise RuntimeError(f"Temp directory not found: {temp_dir}")
 
     # ── Copy to outputs ──────────────────────────────────────
     safe_title = (
