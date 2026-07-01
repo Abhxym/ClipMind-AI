@@ -92,9 +92,11 @@ async def root():
         "message": "AI Video Director API",
         "docs": "/docs",
         "pipeline_agents": [
-            "scene_agent", "quality_agent", "highlight_agent",
-            "caption_agent", "brand_rag_agent", "story_planner_agent",
-            "editing_agent", "export_agent",
+            "input_agent", "preprocess_agent", "whisper_agent",
+            "scene_agent", "metadata_agent", "embedding_agent",
+            "rag_agent", "planner_agent", "caption_agent",
+            "editing_agent", "reviewer_agent", "export_agent",
+            "evaluation_agent",
         ],
     }
 

@@ -1,163 +1,50 @@
-"""
-Export Agent — AI Video Director
-==================================
-Final step: copies the edited video to the outputs folder,
-generates a thumbnail, writes metadata JSON, and computes
-evaluation metrics for the pipeline run.
-"""
-
 from __future__ import annotations
-
-import json
-import os
-import shutil
-import subprocess
-import time
+import json, os, shutil, subprocess
 from pathlib import Path
 from typing import Any, Dict
-
-from logs.agent_logs import AgentLogger
-from memory.langgraph_state import EvaluationMetrics, VideoDirectorState
-
+from memory.state import VideoState
 
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "outputs"))
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+def _ffmpeg():
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
 
-def _generate_thumbnail(video_path: str, out_path: str) -> bool:
-    """Extract the first frame as a thumbnail."""
-    import imageio_ffmpeg
-    cmd = [
-        imageio_ffmpeg.get_ffmpeg_exe(), "-y",
-        "-ss", "0",
-        "-i", video_path,
-        "-frames:v", "1",
-        "-vf", "scale=640:-1",
-        out_path,
-        "-loglevel", "error",
-    ]
-    return subprocess.run(cmd, capture_output=True).returncode == 0
+def _thumb(video_path: str, thumb_path: str) -> bool:
+    try:
+        probe = [_ffmpeg().replace("ffmpeg","ffprobe"),"-v","quiet","-print_format","json","-show_format",video_path]
+        r = subprocess.run(probe, capture_output=True, text=True, timeout=10)
+        dur = float(json.loads(r.stdout).get("format",{}).get("duration", 5))
+        cmd = [_ffmpeg(),"-y","-ss",str(dur*0.2),"-i",video_path,"-vframes","1","-vf","scale=720:-1",thumb_path,"-loglevel","error"]
+        subprocess.run(cmd, timeout=30)
+        return Path(thumb_path).exists()
+    except Exception:
+        return False
 
-
-def _compute_evaluation(state: VideoDirectorState) -> EvaluationMetrics:
-    """Aggregate metrics from state for evaluation logging."""
-    timings = state.get("agent_timings", {})
-    total_ms = sum(timings.values())
-
-    retrieved = len(state.get("retrieved_doc_ids", []))
-    reranked = len(state.get("reranked_doc_ids", []))
-    retrieval_precision = reranked / retrieved if retrieved > 0 else 0.0
-
-    # Reranker lift: ratio of reduction in result set
-    reranker_lift = (
-        (retrieved - reranked) / retrieved if retrieved > 0 else 0.0
-    )
-
-    captions = state.get("captions", [])
-    avg_caption_len = sum(len(c) for c in captions) / max(1, len(captions))
-
-    return EvaluationMetrics(
-        scene_selection_count=len(state.get("story_arc", [])),
-        scenes_filtered=state.get("filtered_count", 0),
-        retrieval_precision_at_k=retrieval_precision,
-        reranker_lift=reranker_lift,
-        caption_length_avg=avg_caption_len,
-        latency_total_ms=total_ms,
-        latency_per_agent=timings,
-        llm_tokens_used=0,   # populated by LangSmith callback if enabled
-        error_count=len(state.get("errors", [])),
-    )
-
-
-# ── LangGraph Node ─────────────────────────────────────────────────────────────
-
-def export_agent(state: VideoDirectorState) -> VideoDirectorState:
-    """
-    LangGraph node: Export Agent.
-    Reads:  state.edited_video_path, state.job_id, state.platform, state.video_title
-    Writes: state.final_video_path, state.final_thumbnail_path,
-            state.export_metadata, state.evaluation
-    """
-    job_id = state["job_id"]
-    log = AgentLogger("export_agent", job_id)
-    log.start("Exporting final reel")
-
-    edited_path = state.get("edited_video_path")
-    if not edited_path:
-        raise RuntimeError("No edited_video_path in state")
-
-    # Normalize path for Windows
-    edited_path = str(Path(edited_path))
-    if not Path(edited_path).exists():
-        log.warning(f"Edited video not found at: {edited_path}")
-        # Try to find it in temp directory
-        temp_dir = Path("temp") / job_id / "editing"
-        if temp_dir.exists():
-            mp4_files = list(temp_dir.glob("*.mp4"))
-            if mp4_files:
-                edited_path = str(mp4_files[-1])  # Use the last (most complete) file
-                log.info(f"Found fallback video: {edited_path}")
-            else:
-                raise RuntimeError(f"No MP4 files found in {temp_dir}")
-        else:
-            raise RuntimeError(f"Temp directory not found: {temp_dir}")
-
-    # ── Copy to outputs ──────────────────────────────────────
-    safe_title = (
-        state.get("video_title", "reel")
-        .replace(" ", "_")
-        .replace("/", "_")[:40]
-    )
-    final_name = f"{job_id}_{safe_title}.mp4"
-    final_path = str(OUTPUT_DIR / final_name)
-    shutil.copy2(edited_path, final_path)
-    log.info(f"Final video: {final_path}")
-
-    # ── Thumbnail ────────────────────────────────────────────
-    thumb_path = str(OUTPUT_DIR / f"{job_id}_thumb.jpg")
-    _generate_thumbnail(final_path, thumb_path)
-
-    # ── Metadata JSON ────────────────────────────────────────
-    metadata: Dict[str, Any] = {
-        "job_id": job_id,
-        "title": state.get("video_title", ""),
-        "platform": state.get("platform", ""),
-        "planned_duration": state.get("planned_duration", 0),
-        "scene_count": len(state.get("story_arc", [])),
-        "captions": state.get("captions", []),
-        "hashtags": state.get("hashtags", []),
-        "tone": state.get("overall_tone", ""),
-        "brand_style": state.get("brand_style"),
-        "agent_timings": state.get("agent_timings", {}),
-        "completed_agents": state.get("completed_agents", []),
-        "errors": [e for e in state.get("errors", [])],
-        "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+def export_agent_node(state: VideoState) -> VideoState:
+    job_id = state.get("job_id", "unknown")
+    logs = [f"[export_agent] Exporting job {job_id}"]
+    errors = []
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    src = state.get("_edited_video_path")
+    if not src or not Path(src).exists():
+        errors.append({"agent": "export_agent", "type": "MissingSource", "message": f"Source not found: {src}"})
+        return {**state, "current_agent": "export_agent", "errors": errors, "logs": logs}
+    dest = OUTPUT_DIR / f"{job_id}_final.mp4"
+    shutil.copy2(src, str(dest))
+    thumb = OUTPUT_DIR / f"{job_id}_thumb.jpg"
+    _thumb(str(dest), str(thumb))
+    meta = {
+        "job_id": job_id, "platform": state.get("platform"),
+        "target_duration": state.get("target_duration"),
+        "video_title": state.get("_video_title", "AI Reel"),
+        "hashtags": state.get("_hashtags", []),
+        "music_mood": state.get("_music_mood", "upbeat"),
     }
-    meta_path = str(OUTPUT_DIR / f"{job_id}_metadata.json")
-    Path(meta_path).write_text(json.dumps(metadata, indent=2, default=str))
-    log.info(f"Metadata: {meta_path}")
-
-    # ── Evaluation ───────────────────────────────────────────
-    evaluation = _compute_evaluation(state)
-    eval_path = str(OUTPUT_DIR / f"{job_id}_evaluation.json")
-    Path(eval_path).write_text(json.dumps(evaluation, indent=2))
-
-    log.success(
-        f"Export complete | "
-        f"duration={state.get('planned_duration', 0):.1f}s | "
-        f"latency={evaluation['latency_total_ms']:.0f}ms"
-    )
-
-    return {
-        **state,
-        "final_video_path": final_path,
-        "final_thumbnail_path": thumb_path,
-        "export_metadata": metadata,
-        "evaluation": evaluation,
-        "current_agent": "export_agent",
-        "completed_agents": ["export_agent"],
-        "agent_timings": {
-            **state.get("agent_timings", {}),
-            "export_agent": log.elapsed_ms(),
-        },
-    }
+    with open(OUTPUT_DIR / f"{job_id}_meta.json", "w") as f:
+        json.dump(meta, f, indent=2)
+    logs.append(f"[export_agent] Done: {dest}")
+    return {**state, "final_video": str(dest), "current_agent": "export_agent", "errors": errors, "logs": logs}

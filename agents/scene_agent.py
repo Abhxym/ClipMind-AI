@@ -1,174 +1,202 @@
 """
-Scene Extraction Agent — AI Video Director
-==========================================
-Detects scene boundaries via OpenCV histogram comparison.
-Optimised: samples at 2fps max, merges short scenes, skips corrupt clips.
+Scene Agent — AI Video Director
+=================================
+Pipeline Step 4: Scene Understanding using Gemini Vision.
+  - Samples one representative frame per clip
+  - Sends the frame to Gemini 1.5 Flash for a rich scene description
+  - Falls back to BLIP-2 or a generic description if Gemini unavailable
+  - Produces scene_descriptions list consumed by metadata and planner agents
 """
-
 from __future__ import annotations
 
+import base64
+import json
 import os
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List, Optional
 
-import cv2
-import numpy as np
+from memory.state import VideoState
 
-from logs.agent_logs import AgentLogger
-from memory.langgraph_state import SceneMetadata, VideoDirectorState
-
-
-THUMBNAIL_DIR = Path("temp/thumbnails")
-THUMBNAIL_DIR.mkdir(parents=True, exist_ok=True)
-
-SCENE_CHANGE_THRESHOLD = float(os.getenv("SCENE_CHANGE_THRESHOLD", "0.35"))
-FRAME_SAMPLE_FPS = float(os.getenv("FRAME_SAMPLE_FPS", "2"))
-MIN_SCENE_DURATION = float(os.getenv("MIN_SCENE_DURATION", "1.5"))  # seconds
-MAX_SCENE_DURATION = float(os.getenv("MAX_SCENE_DURATION", "10.0"))  # seconds
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL_CAPTION", "gemini-1.5-flash")
 
 
-def _histogram_diff(frame_a: np.ndarray, frame_b: np.ndarray) -> float:
-    hist_a = cv2.calcHist([cv2.cvtColor(frame_a, cv2.COLOR_BGR2HSV)],
-                          [0, 1], None, [50, 60], [0, 180, 0, 256])
-    hist_b = cv2.calcHist([cv2.cvtColor(frame_b, cv2.COLOR_BGR2HSV)],
-                          [0, 1], None, [50, 60], [0, 180, 0, 256])
-    cv2.normalize(hist_a, hist_a)
-    cv2.normalize(hist_b, hist_b)
-    return float(cv2.compareHist(hist_a, hist_b, cv2.HISTCMP_BHATTACHARYYA))
+def _encode_image(path: str) -> Optional[str]:
+    """Base64-encode an image file."""
+    try:
+        with open(path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    except Exception:
+        return None
 
 
-def _save_thumbnail(frame: np.ndarray, scene_index: int, job_id: str) -> str:
-    thumb_dir = THUMBNAIL_DIR / job_id
-    thumb_dir.mkdir(parents=True, exist_ok=True)
-    path = str(thumb_dir / f"scene_{scene_index:04d}.jpg")
-    cv2.imwrite(path, cv2.resize(frame, (320, 180)))
-    return path
+def _describe_with_gemini(frame_path: str, clip_index: int) -> Dict[str, Any]:
+    """Use Gemini Vision to describe a scene frame."""
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=GOOGLE_API_KEY)
+        model = genai.GenerativeModel(GEMINI_MODEL)
+
+        import PIL.Image
+        img = PIL.Image.open(frame_path)
+
+        prompt = (
+            "You are an expert video editor. Describe this video frame concisely in 2-3 sentences. "
+            "Focus on: main subject/action, mood/emotion, visual style, setting/background. "
+            "Also rate on a scale 0-10: visual_quality, emotional_impact, cinematic_value. "
+            "Respond ONLY with valid JSON: "
+            "{\"description\": \"...\", \"mood\": \"...\", \"setting\": \"...\", "
+            "\"visual_quality\": 7, \"emotional_impact\": 6, \"cinematic_value\": 7}"
+        )
+
+        response = model.generate_content([prompt, img])
+        text = response.text.strip()
+
+        # Parse JSON from response
+        if "```json" in text:
+            text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text:
+            text = text.split("```")[1].split("```")[0].strip()
+
+        parsed = json.loads(text)
+        return {
+            "clip_index": clip_index,
+            "frame_path": frame_path,
+            "description": parsed.get("description", ""),
+            "mood": parsed.get("mood", "neutral"),
+            "setting": parsed.get("setting", ""),
+            "visual_quality": float(parsed.get("visual_quality", 5)),
+            "emotional_impact": float(parsed.get("emotional_impact", 5)),
+            "cinematic_value": float(parsed.get("cinematic_value", 5)),
+            "source": "gemini",
+        }
+    except ImportError:
+        return _fallback_description(frame_path, clip_index, "google-generativeai not installed")
+    except json.JSONDecodeError:
+        # Gemini responded but not valid JSON — extract text response as description
+        try:
+            raw = response.text.strip()
+            return {
+                "clip_index": clip_index,
+                "frame_path": frame_path,
+                "description": raw[:300],
+                "mood": "neutral",
+                "setting": "",
+                "visual_quality": 5.0,
+                "emotional_impact": 5.0,
+                "cinematic_value": 5.0,
+                "source": "gemini-raw",
+            }
+        except Exception:
+            return _fallback_description(frame_path, clip_index, "JSON parse error")
+    except Exception as exc:
+        return _fallback_description(frame_path, clip_index, str(exc))
 
 
-def extract_scenes_from_clip(
-    clip_path: str,
-    job_id: str,
-    base_scene_index: int = 0,
-) -> List[SceneMetadata]:
-    cap = cv2.VideoCapture(clip_path)
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open video: {clip_path}")
+def _fallback_description(frame_path: str, clip_index: int, reason: str) -> Dict[str, Any]:
+    """Fallback: attempt BLIP-2 or use generic placeholder."""
+    try:
+        from transformers import BlipProcessor, BlipForConditionalGeneration
+        import torch
+        from PIL import Image
 
-    native_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    total_duration = total_frames / native_fps
-    sample_every = max(1, int(native_fps / FRAME_SAMPLE_FPS))
+        processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+        model_blip = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+        img = Image.open(frame_path).convert("RGB")
+        inputs = processor(img, return_tensors="pt")
+        out = model_blip.generate(**inputs, max_new_tokens=50)
+        caption = processor.decode(out[0], skip_special_tokens=True)
 
-    # Collect boundary timestamps
-    boundaries: List[float] = [0.0]
-    prev_frame: np.ndarray | None = None
-    frame_num = 0
+        return {
+            "clip_index": clip_index,
+            "frame_path": frame_path,
+            "description": caption,
+            "mood": "neutral",
+            "setting": "",
+            "visual_quality": 5.0,
+            "emotional_impact": 5.0,
+            "cinematic_value": 5.0,
+            "source": "blip",
+        }
+    except Exception:
+        pass
 
-    while frame_num < total_frames:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-        ret, frame = cap.read()
-        if not ret:
-            break
-            
-        if prev_frame is not None:
-            diff = _histogram_diff(prev_frame, frame)
-            t = frame_num / native_fps
-            time_since_last = t - boundaries[-1]
-            
-            if diff > SCENE_CHANGE_THRESHOLD:
-                # Only add boundary if it's far enough from the last one
-                if time_since_last >= MIN_SCENE_DURATION:
-                    boundaries.append(t)
-            elif time_since_last >= MAX_SCENE_DURATION:
-                # Force a cut if the scene is getting too long
-                boundaries.append(t)
-                
-        prev_frame = frame.copy()
-        frame_num += sample_every
+    # Final fallback: generic
+    return {
+        "clip_index": clip_index,
+        "frame_path": frame_path,
+        "description": f"Video scene from clip {clip_index}. [Gemini unavailable: {reason[:80]}]",
+        "mood": "neutral",
+        "setting": "unknown",
+        "visual_quality": 5.0,
+        "emotional_impact": 5.0,
+        "cinematic_value": 5.0,
+        "source": "fallback",
+    }
 
-    cap.release()
-    if total_duration - boundaries[-1] < MIN_SCENE_DURATION and len(boundaries) > 1:
-        boundaries[-1] = total_duration
-    else:
-        boundaries.append(total_duration)
 
-    # Build scene list from boundaries
-    scenes: List[SceneMetadata] = []
-    for i in range(len(boundaries) - 1):
-        start = boundaries[i]
-        end = boundaries[i + 1]
-        duration = end - start
-        if duration < MIN_SCENE_DURATION:
+def _pick_representative_frame(frames: List[Dict], clip_index: int) -> Optional[str]:
+    """Pick the best quality frame from a clip."""
+    clip_frames = [f for f in frames if f.get("clip_index") == clip_index and f.get("quality_ok", True)]
+    if not clip_frames:
+        clip_frames = [f for f in frames if f.get("clip_index") == clip_index]
+    if not clip_frames:
+        return None
+    # Pick the middle frame as most representative
+    return clip_frames[len(clip_frames) // 2].get("frame_path")
+
+
+def scene_agent_node(state: VideoState) -> VideoState:
+    """
+    LangGraph Node: Scene Understanding Agent.
+    Reads:  frames, uploaded_videos
+    Writes: scene_descriptions
+    """
+    logs: List[str] = ["[scene_agent] Analyzing scenes with Gemini Vision"]
+    errors: List[Dict[str, Any]] = []
+    descriptions: List[Dict[str, Any]] = []
+
+    frames = state.get("frames", [])
+    clips = state.get("uploaded_videos", [])
+
+    if not clips:
+        logs.append("[scene_agent] No clips to analyze")
+        return {**state, "scene_descriptions": [], "current_agent": "scene_agent", "errors": [], "logs": logs}
+
+    for clip_idx, clip_path in enumerate(clips):
+        frame_path = _pick_representative_frame(frames, clip_idx)
+
+        if not frame_path or not Path(frame_path).exists():
+            # Try any frame with this clip_path
+            matching = [f for f in frames if f.get("clip_path") == clip_path]
+            if matching:
+                frame_path = matching[len(matching) // 2].get("frame_path")
+
+        if not frame_path or not Path(frame_path).exists():
+            errors.append({
+                "agent": "scene_agent",
+                "type": "NoFrame",
+                "message": f"No valid frame found for clip {clip_idx}: {Path(clip_path).name}",
+            })
+            descriptions.append(_fallback_description("", clip_idx, "no frame available"))
             continue
 
-        scene_idx = base_scene_index + len(scenes)
+        desc = _describe_with_gemini(frame_path, clip_idx)
+        desc["clip_path"] = clip_path
+        descriptions.append(desc)
+        logs.append(
+            f"[scene_agent] Clip {clip_idx} ({Path(clip_path).name}): "
+            f"\"{desc['description'][:80]}...\" | mood={desc['mood']} | "
+            f"source={desc['source']}"
+        )
 
-        # Extract representative frame for thumbnail
-        cap2 = cv2.VideoCapture(clip_path)
-        cap2.set(cv2.CAP_PROP_POS_FRAMES, int((start + duration * 0.3) * native_fps))
-        ret, thumb_frame = cap2.read()
-        cap2.release()
-        thumb_path = _save_thumbnail(thumb_frame if ret else np.zeros((180, 320, 3), np.uint8),
-                                     scene_idx, job_id)
-
-        scenes.append(SceneMetadata(
-            clip_path=clip_path,
-            scene_index=scene_idx,
-            start_time=round(start, 3),
-            end_time=round(end, 3),
-            duration=round(duration, 3),
-            thumbnail_path=thumb_path,
-            fps=native_fps,
-            resolution=(width, height),
-        ))
-
-    # Fallback: if no scenes detected, treat whole clip as one scene
-    if not scenes and total_duration >= MIN_SCENE_DURATION:
-        cap2 = cv2.VideoCapture(clip_path)
-        cap2.set(cv2.CAP_PROP_POS_FRAMES, int(total_duration * 0.3 * native_fps))
-        ret, thumb_frame = cap2.read()
-        cap2.release()
-        thumb_path = _save_thumbnail(thumb_frame if ret else np.zeros((180, 320, 3), np.uint8),
-                                     base_scene_index, job_id)
-        scenes.append(SceneMetadata(
-            clip_path=clip_path,
-            scene_index=base_scene_index,
-            start_time=0.0,
-            end_time=round(total_duration, 3),
-            duration=round(total_duration, 3),
-            thumbnail_path=thumb_path,
-            fps=native_fps,
-            resolution=(width, height),
-        ))
-
-    return scenes
-
-
-def scene_extraction_agent(state: VideoDirectorState) -> VideoDirectorState:
-    job_id = state["job_id"]
-    log = AgentLogger("scene_agent", job_id)
-    log.start(f"Extracting scenes from {len(state['raw_clips'])} clips")
-
-    all_scenes: List[SceneMetadata] = []
-
-    for clip_path in state["raw_clips"]:
-        log.info(f"Processing: {Path(clip_path).name}")
-        try:
-            clip_scenes = extract_scenes_from_clip(clip_path, job_id, len(all_scenes))
-            all_scenes.extend(clip_scenes)
-            log.debug(f"  → {len(clip_scenes)} scenes")
-        except Exception as exc:
-            log.warning(f"Skipping {Path(clip_path).name}: {exc}")
-
-    log.success(f"Total scenes extracted: {len(all_scenes)}")
+    logs.append(f"[scene_agent] Generated {len(descriptions)} scene descriptions")
 
     return {
         **state,
-        "scenes": all_scenes,
-        "scene_count": len(all_scenes),
+        "scene_descriptions": descriptions,
         "current_agent": "scene_agent",
-        "completed_agents": ["scene_agent"],
-        "agent_timings": {**state.get("agent_timings", {}), "scene_agent": log.elapsed_ms()},
+        "errors": errors,
+        "logs": logs,
     }

@@ -40,13 +40,16 @@ def _get_job(job_id: str) -> dict:
 def _run_pipeline_sync(job_id: str, clips: list, request: CreateJobRequest, loop: asyncio.AbstractEventLoop):
     """Runs the pipeline in a background thread."""
     from api.routes.ws import manager
-    from pipeline.graph import run_pipeline
+    from graphs.workflow import run_pipeline
+    from memory.state import create_initial_state
     import datetime
 
     AGENT_ORDER = [
-        "scene_agent", "quality_agent", "highlight_agent",
-        "caption_agent", "brand_rag_agent", "story_planner_agent",
-        "editing_agent", "export_agent",
+        "input_agent", "preprocess_agent", "whisper_agent",
+        "scene_agent", "metadata_agent", "embedding_agent",
+        "rag_agent", "planner_agent", "caption_agent",
+        "editing_agent", "reviewer_agent", "export_agent",
+        "evaluation_agent",
     ]
 
     def progress_callback(agent_name: str, status: str, attempt: int):
@@ -80,15 +83,15 @@ def _run_pipeline_sync(job_id: str, clips: list, request: CreateJobRequest, loop
     _jobs[job_id]["status"] = JobStatus.running
 
     try:
-        final_state = run_pipeline(
+        initial_state = create_initial_state(
             job_id=job_id,
-            raw_clips=clips,
             user_prompt=request.user_prompt,
+            uploaded_videos=clips,
             target_duration=request.target_duration,
             platform=request.platform.value,
             brand_pdf_path=request.brand_pdf_path,
-            progress_callback=progress_callback,
         )
+        final_state = run_pipeline(job_id=job_id, initial_state=initial_state)
         _jobs[job_id]["status"] = JobStatus.done
         _jobs[job_id]["final_state"] = final_state
         _jobs[job_id]["progress_pct"] = 100.0
@@ -161,9 +164,11 @@ async def get_job_status(job_id: str):
     errors = final_state.get("errors", [])
 
     AGENT_ORDER = [
-        "scene_agent", "quality_agent", "highlight_agent",
-        "caption_agent", "brand_rag_agent", "story_planner_agent",
-        "editing_agent", "export_agent",
+        "input_agent", "preprocess_agent", "whisper_agent",
+        "scene_agent", "metadata_agent", "embedding_agent",
+        "rag_agent", "planner_agent", "caption_agent",
+        "editing_agent", "reviewer_agent", "export_agent",
+        "evaluation_agent",
     ]
     agent_statuses = []
     for name in AGENT_ORDER:
@@ -199,18 +204,32 @@ async def get_job_result(job_id: str):
             return None
         return f"/outputs/{Path(path).name}"
 
+    # Extract captions as a flat list of strings for the response
+    raw_captions = state.get("captions", [])
+    caption_texts = [
+        c.get("caption", "") if isinstance(c, dict) else str(c)
+        for c in raw_captions
+    ]
+
     return JobResultResponse(
         job_id=job_id,
         status=job["status"],
-        video_title=state.get("video_title"),
-        final_video_url=_url(state.get("final_video_path")),
-        final_thumbnail_url=_url(state.get("final_thumbnail_path")),
-        captions=state.get("captions", []),
-        hashtags=state.get("hashtags", []),
-        tone=state.get("overall_tone"),
-        planned_duration=state.get("planned_duration"),
-        evaluation=state.get("evaluation"),
-        agent_timings=state.get("agent_timings", {}),
+        video_title=state.get("_video_title"),
+        final_video_url=_url(state.get("final_video")),
+        final_thumbnail_url=_url(
+            state.get("final_video", "").replace("_final.mp4", "_thumb.jpg")
+            if state.get("final_video") else None
+        ),
+        captions=caption_texts,
+        hashtags=state.get("_hashtags", []),
+        tone=state.get("_overall_tone"),
+        planned_duration=sum(e.get("duration", 0) for e in state.get("story_plan", [])),
+        evaluation=state.get("evaluation_score"),
+        agent_timings={},
+        metadata_url=_url(
+            str(Path("outputs") / f"{job_id}_meta.json")
+            if (Path("outputs") / f"{job_id}_meta.json").exists() else None
+        ),
     )
 
 
