@@ -36,6 +36,11 @@ class CreateJobRequest(BaseModel):
     clip_paths: List[str] = Field(default_factory=list, description="Server paths to uploaded video clips")
 
 
+class EnhanceVideoRequest(BaseModel):
+    filter_type: str = Field("none", description="Filter to apply: none, vivid, cinematic, bw, vintage")
+    music_track: str = Field("none", description="Music track to mix: none, track1, track2, track3, track4, track5")
+
+
 # ── Response Models ────────────────────────────────────────────────────────────
 
 class UploadResponse(BaseModel):
@@ -81,6 +86,13 @@ class JobResultResponse(BaseModel):
     evaluation: Optional[Dict[str, Any]] = None
     agent_timings: Dict[str, float] = {}
     metadata_url: Optional[str] = None
+
+
+class EnhanceVideoResponse(BaseModel):
+    job_id: str
+    status: str
+    enhanced_video_url: str
+    message: str
 
 
 # ── WebSocket Messages ─────────────────────────────────────────────────────────

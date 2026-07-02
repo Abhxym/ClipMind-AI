@@ -1,25 +1,35 @@
 import type { AgentInfo } from '../types'
 
 const AGENT_COLORS: Record<string, string> = {
-  scene_agent:          'var(--agent-scene)',
-  quality_agent:        'var(--agent-quality)',
-  highlight_agent:      'var(--agent-highlight)',
-  caption_agent:        'var(--agent-caption)',
-  brand_rag_agent:      'var(--agent-rag)',
-  story_planner_agent:  'var(--agent-planner)',
-  editing_agent:        'var(--agent-editing)',
-  export_agent:         'var(--agent-export)',
+  input_agent:          'var(--agent-input, #64748b)',
+  preprocess_agent:     'var(--agent-preprocess, #0ea5e9)',
+  whisper_agent:        'var(--agent-whisper, #f59e0b)',
+  scene_agent:          'var(--agent-scene, #ec4899)',
+  metadata_agent:       'var(--agent-metadata, #8b5cf6)',
+  embedding_agent:      'var(--agent-embedding, #14b8a6)',
+  rag_agent:            'var(--agent-rag, #3b82f6)',
+  planner_agent:        'var(--agent-planner, #f43f5e)',
+  caption_agent:        'var(--agent-caption, #eab308)',
+  editing_agent:        'var(--agent-editing, #10b981)',
+  reviewer_agent:       'var(--agent-reviewer, #ef4444)',
+  export_agent:         'var(--agent-export, #6366f1)',
+  evaluation_agent:     'var(--agent-evaluation, #8b5cf6)',
 }
 
 const AGENT_META: Record<string, { label: string; icon: string; description: string }> = {
-  scene_agent:          { label: 'Scene Extraction',   icon: '🎬', description: 'OpenCV histogram diff · scene boundary detection' },
-  quality_agent:        { label: 'Quality Analysis',   icon: '🔍', description: 'Blur · brightness · motion optical flow' },
-  highlight_agent:      { label: 'Highlight Detection',icon: '✨', description: 'Face/smile detection · Whisper transcript · audio peaks' },
-  caption_agent:        { label: 'Caption Generator',  icon: '💬', description: 'Gemini Flash multimodal · titles · hashtags' },
-  brand_rag_agent:      { label: 'Brand RAG',          icon: '🧠', description: 'FAISS/Chroma retrieval → BGE Reranker top-3' },
-  story_planner_agent:  { label: 'Story Planner',      icon: '📖', description: 'Gemini Pro narrative arc · transitions · music' },
-  editing_agent:        { label: 'Video Editing',      icon: '✂️',  description: 'FFmpeg trim · transitions · subtitle burn · music mix' },
-  export_agent:         { label: 'Export',             icon: '📤', description: 'Platform encode · thumbnail · metadata · evaluation' },
+  input_agent:          { label: 'Validation',         icon: '📥', description: 'ffprobe validation · extension/size checks' },
+  preprocess_agent:     { label: 'Frame Extraction',   icon: '🎞️', description: 'FFmpeg extraction · OpenCV quality scores' },
+  whisper_agent:        { label: 'Transcription',      icon: '🎙️', description: 'OpenAI Whisper · speech-to-text' },
+  scene_agent:          { label: 'Scene Extraction',   icon: '🎬', description: 'Gemini Vision · scene understanding' },
+  metadata_agent:       { label: 'Metadata & Emotion', icon: '🔍', description: 'Gemini/YOLO · object detection · excitement score' },
+  embedding_agent:      { label: 'Vector Build',       icon: '🔢', description: 'BGE embeddings · FAISS index' },
+  rag_agent:            { label: 'Brand RAG',          icon: '🧠', description: 'FAISS retrieval · BGE Reranker' },
+  planner_agent:        { label: 'Story Planner',      icon: '📖', description: 'Gemini Pro narrative arc · clip timing' },
+  caption_agent:        { label: 'Caption Generator',  icon: '💬', description: 'Gemini Flash · titles · hashtags' },
+  editing_agent:        { label: 'Video Editing',      icon: '✂️',  description: 'FFmpeg trim · subtitles · concat' },
+  reviewer_agent:       { label: 'Quality Review',     icon: '✅', description: 'Duration check · edit success rate gating' },
+  export_agent:         { label: 'Export',             icon: '📤', description: 'Final file save · thumbnail generation' },
+  evaluation_agent:     { label: 'Evaluation',         icon: '📊', description: 'Metrics scoring · duration accuracy' },
 }
 
 interface AgentGraphProps {

@@ -17,17 +17,16 @@ from typing import Any, Dict, List, Optional
 from memory.state import VideoState
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL_CAPTION", "gemini-1.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 
 def _analyze_with_gemini(frame_path: str, clip_index: int, scene_desc: str) -> Dict[str, Any]:
     """Use Gemini to detect objects and estimate emotional tone."""
     try:
-        import google.generativeai as genai
+        from google import genai
         import PIL.Image
 
-        genai.configure(api_key=GOOGLE_API_KEY)
-        model = genai.GenerativeModel(GEMINI_MODEL)
+        client = genai.Client(api_key=GOOGLE_API_KEY)
 
         img = PIL.Image.open(frame_path)
 
@@ -45,7 +44,10 @@ def _analyze_with_gemini(frame_path: str, clip_index: int, scene_desc: str) -> D
             "\"color_palette\": [\"golden\", \"blue\", \"white\"]}"
         )
 
-        response = model.generate_content([prompt, img])
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[prompt, img]
+        )
         text = response.text.strip()
 
         if "```json" in text:

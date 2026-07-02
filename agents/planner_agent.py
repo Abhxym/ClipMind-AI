@@ -18,7 +18,7 @@ from typing import Any, Dict, List
 from memory.state import VideoState
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL_PLANNER = os.getenv("GEMINI_MODEL_PLANNER", "gemini-1.5-pro")
+GEMINI_MODEL_PLANNER = os.getenv("GEMINI_MODEL_PLANNER", "gemini-2.5-pro")
 
 
 def _build_planner_prompt(state: VideoState) -> str:
@@ -100,12 +100,14 @@ Rules:
 def _plan_with_gemini(state: VideoState) -> List[Dict[str, Any]]:
     """Call Gemini Pro to generate the story plan."""
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=GOOGLE_API_KEY)
-        model = genai.GenerativeModel(GEMINI_MODEL_PLANNER)
+        from google import genai
+        client = genai.Client(api_key=GOOGLE_API_KEY)
 
         prompt = _build_planner_prompt(state)
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=GEMINI_MODEL_PLANNER,
+            contents=prompt
+        )
         text = response.text.strip()
 
         if "```json" in text:

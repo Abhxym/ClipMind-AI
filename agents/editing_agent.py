@@ -98,11 +98,9 @@ def editing_agent_node(state: VideoState) -> VideoState:
         out_path = str(temp_dir / f"segment_{i:03d}.mp4")
         t_start = time.time()
 
-        # Detect audio presence from earlier metadata
-        clip_meta = state.get("_clip_metadata", [])
-        has_audio = True
-        if clip_meta and clip_idx < len(clip_meta):
-            has_audio = clip_meta[clip_idx].get("has_audio", True)
+        # Detect audio presence — check actual file, not just metadata
+        import tools.ffmpeg as ffmpeg_tool
+        src_has_audio = ffmpeg_tool.has_audio(src_clip)
 
         success = ffmpeg_tool.trim(
             input_path=src_clip,
@@ -112,7 +110,7 @@ def editing_agent_node(state: VideoState) -> VideoState:
             width=width,
             height=height,
             caption=caption_text,
-            has_audio=has_audio,
+            has_audio=src_has_audio,
         )
 
         elapsed = round((time.time() - t_start) * 1000, 1)

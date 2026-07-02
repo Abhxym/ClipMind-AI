@@ -1,24 +1,37 @@
-import { useState, useRef } from 'react'
-import type { JobResult } from '../types'
+import { useRef, useState } from 'react'
+import type { JobResult, Platform } from '../types'
+import { enhanceVideo } from '../api'
 
 interface VideoPreviewProps {
   result: JobResult
+  platform?: Platform | string
 }
 
-export function VideoPreview({ result }: VideoPreviewProps) {
-  const [playing, setPlaying] = useState(false)
+export function VideoPreview({ result, platform }: VideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
 
-  const togglePlay = () => {
-    if (!videoRef.current) return
-    if (playing) { videoRef.current.pause() }
-    else { videoRef.current.play() }
-    setPlaying(!playing)
-  }
+  const [selectedFilter, setSelectedFilter] = useState('none')
+  const [selectedMusic, setSelectedMusic] = useState('none')
+  const [isEnhancing, setIsEnhancing] = useState(false)
+  const [enhancedVideoUrl, setEnhancedVideoUrl] = useState<string | null>(null)
 
   const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-  const videoUrl = result.final_video_url ? new URL(result.final_video_url, backendUrl).href : null;
+  const originalVideoUrl = result.final_video_url ? new URL(result.final_video_url, backendUrl).href : null;
+  const videoUrl = enhancedVideoUrl ? new URL(enhancedVideoUrl, backendUrl).href : originalVideoUrl;
   const thumbUrl = result.final_thumbnail_url ? new URL(result.final_thumbnail_url, backendUrl).href : null;
+
+  const handleEnhance = async () => {
+    try {
+      setIsEnhancing(true)
+      const res = await enhanceVideo(result.job_id, selectedFilter, selectedMusic)
+      setEnhancedVideoUrl(res.enhanced_video_url)
+    } catch (err) {
+      console.error('Enhance failed:', err)
+      alert('Failed to enhance video.')
+    } finally {
+      setIsEnhancing(false)
+    }
+  }
 
   return (
     <div className="video-preview">
@@ -57,8 +70,6 @@ export function VideoPreview({ result }: VideoPreviewProps) {
               poster={thumbUrl || undefined}
               className="vp-video"
               controls
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
             />
           </>
         ) : thumbUrl ? (
@@ -70,6 +81,56 @@ export function VideoPreview({ result }: VideoPreviewProps) {
           </div>
         )}
       </div>
+
+      {/* ── Instagram Studio ─────────────────────────────── */}
+      {platform === 'instagram' && videoUrl && (
+        <div className="vp-studio">
+          <div className="vp-studio-header">
+            <h3>✨ Instagram Studio</h3>
+            <span className="badge badge-purple">Post-processing</span>
+          </div>
+          
+          <div className="vp-studio-controls">
+            <div className="vp-studio-group">
+              <label>Cinematic Filters</label>
+              <div className="vp-studio-options">
+                {['none', 'vivid', 'cinematic', 'bw', 'vintage'].map(f => (
+                  <button
+                    key={f}
+                    className={`btn-studio-opt ${selectedFilter === f ? 'active' : ''}`}
+                    onClick={() => setSelectedFilter(f)}
+                  >
+                    {f === 'bw' ? 'B&W' : f.charAt(0).toUpperCase() + f.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="vp-studio-group">
+              <label>Background Music</label>
+              <div className="vp-studio-options">
+                {['none', 'track1', 'track2', 'track3', 'track4', 'track5'].map(m => (
+                  <button
+                    key={m}
+                    className={`btn-studio-opt ${selectedMusic === m ? 'active' : ''}`}
+                    onClick={() => setSelectedMusic(m)}
+                  >
+                    {m === 'none' ? 'None' : m.replace('track', 'Track ')}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              className="btn btn-primary btn-enhance"
+              onClick={handleEnhance}
+              disabled={isEnhancing || (selectedFilter === 'none' && selectedMusic === 'none')}
+            >
+              {isEnhancing ? '⏳ Rendering...' : 'Apply & Render'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Captions ─────────────────────────────────── */}
       {result.captions.length > 0 && (
@@ -153,6 +214,73 @@ export function VideoPreview({ result }: VideoPreviewProps) {
           font-family: 'JetBrains Mono', monospace;
         }
         .vp-caption-text { font-size: 0.85rem; color: var(--text-secondary); }
+
+        /* ── Instagram Studio ── */
+        .vp-studio {
+          background: rgba(220, 158, 28, 0.03);
+          border: 1px solid rgba(220, 158, 28, 0.15);
+          border-radius: var(--r-lg);
+          padding: 20px;
+          margin-top: 10px;
+        }
+        .vp-studio-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 16px;
+        }
+        .vp-studio-header h3 {
+          font-size: 1.1rem;
+          color: #f0ece4;
+          font-weight: 600;
+        }
+        .vp-studio-controls {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .vp-studio-group label {
+          display: block;
+          font-size: 0.8rem;
+          color: var(--text-secondary);
+          margin-bottom: 8px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .vp-studio-options {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+        .btn-studio-opt {
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid rgba(255, 255, 255, 0.1);
+          color: var(--text-secondary);
+          padding: 6px 12px;
+          border-radius: var(--r-md);
+          font-size: 0.85rem;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .btn-studio-opt:hover {
+          background: rgba(255, 255, 255, 0.1);
+          color: #f0ece4;
+        }
+        .btn-studio-opt.active {
+          background: rgba(220, 158, 28, 0.15);
+          border-color: rgba(220, 158, 28, 0.4);
+          color: #f0b429;
+          font-weight: 500;
+        }
+        .btn-enhance {
+          margin-top: 8px;
+          width: 100%;
+          justify-content: center;
+        }
+        .btn-enhance:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
       `}</style>
     </div>
   )

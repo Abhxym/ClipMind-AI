@@ -8,19 +8,27 @@ import type { UploadedClip, AgentInfo, WSMessage, JobResult, Platform } from './
 import './App.css'
 
 const AGENT_ORDER = [
-  'scene_agent', 'quality_agent', 'highlight_agent', 'caption_agent',
-  'brand_rag_agent', 'story_planner_agent', 'editing_agent', 'export_agent',
+  'input_agent', 'preprocess_agent', 'whisper_agent',
+  'scene_agent', 'metadata_agent', 'embedding_agent',
+  'rag_agent', 'planner_agent', 'caption_agent',
+  'editing_agent', 'reviewer_agent', 'export_agent',
+  'evaluation_agent',
 ]
 
 const AGENT_META_LABELS: Record<string, string> = {
-  scene_agent:         'Scene Extraction',
-  quality_agent:       'Quality Analysis',
-  highlight_agent:     'Highlight Detection',
+  input_agent:         'Validation',
+  preprocess_agent:    'Frame Extraction',
+  whisper_agent:       'Transcription',
+  scene_agent:         'Scene Understanding',
+  metadata_agent:      'Metadata & Emotion',
+  embedding_agent:     'Vector Build',
+  rag_agent:           'Brand RAG',
+  planner_agent:       'Story Planner',
   caption_agent:       'Caption Generator',
-  brand_rag_agent:     'Brand RAG',
-  story_planner_agent: 'Story Planner',
   editing_agent:       'Video Editing',
+  reviewer_agent:      'Quality Review',
   export_agent:        'Exporting',
+  evaluation_agent:    'Evaluation',
 }
 
 const defaultAgents = (): AgentInfo[] =>
@@ -154,49 +162,81 @@ export default function App() {
 
   return (
     <div className="app">
-      {/* ── Header ─────────────────────────────────────── */}
-      <header className="app-header">
-        <div className="container">
-          <div className="header-inner">
-            <div className="header-brand">
-              <span className="header-logo">🎬</span>
-              <div>
-                <div className="header-title gradient-text">AI Video Director</div>
-                <div className="header-sub">Multi-agent reel generation · LangGraph · RAG · Gemini</div>
+
+      {/* ══════════════════════════════════════════════════
+           CINEMATIC HERO — background image + navbar
+         ══════════════════════════════════════════════════ */}
+      <div className="cinematic-hero">
+        {/* Background image layer */}
+        <div className="cinematic-bg" />
+        {/* Layered overlays */}
+        <div className="cinematic-overlay-base" />
+        <div className="cinematic-overlay-sides" />
+        {/* Amber lamp glow */}
+        <div className="cinematic-glow" />
+        {/* Film grain */}
+        <div className="cinematic-grain" />
+
+        {/* ── Navbar ── */}
+        <header className="app-header">
+          <div className="container">
+            <div className="header-inner">
+              <div className="header-brand">
+                <span className="header-logo">🎬</span>
+                <div>
+                  <div className="header-title">AI Video Director</div>
+                  <div className="header-sub">Multi-agent reel generation · LangGraph · RAG · Gemini</div>
+                </div>
+              </div>
+              <div className="header-badges">
+                <span className="badge badge-purple">LangGraph</span>
+                <span className="badge badge-blue">RAG + Reranker</span>
+                <span className="badge badge-green">Gemini</span>
+                <span className="badge badge-yellow">FFmpeg</span>
               </div>
             </div>
-            <div className="header-badges">
-              <span className="badge badge-purple">LangGraph</span>
-              <span className="badge badge-blue">RAG + Reranker</span>
-              <span className="badge badge-green">Gemini</span>
-              <span className="badge badge-yellow">FFmpeg</span>
-            </div>
           </div>
+          {/* Navbar progress bar (only during processing) */}
+          {stage === 'processing' && (
+            <div className="navbar-progress">
+              <div className="navbar-progress-fill" style={{ width: `${progress}%` }} />
+              <div className="navbar-progress-label">
+                {AGENT_ORDER.indexOf(currentAgent ?? '') >= 0
+                  ? `${AGENT_META_LABELS[currentAgent!]} — ${progress.toFixed(0)}%`
+                  : `Starting… ${progress.toFixed(0)}%`}
+              </div>
+            </div>
+          )}
+        </header>
+
+        {/* ── Hero Content ── */}
+        <div className="cinematic-content">
+          <div className="hero-badge-pill">
+            <span className="hero-badge-dot" />
+            Multi-Agent AI Pipeline
+          </div>
+          <h1 className="cinematic-headline">
+            <span className="cinematic-line1">Turn Raw Clips into a</span>
+            <span className="cinematic-line2"><em>Polished Reel</em></span>
+          </h1>
+          <div className="cinematic-rule" />
+          <p className="cinematic-subtitle">
+            Upload 10–20 clips. Describe your vision. Watch <strong>8 AI agents</strong> do the rest.
+          </p>
         </div>
-        {/* ── Navbar progress bar (only during processing) ── */}
-        {stage === 'processing' && (
-          <div className="navbar-progress">
-            <div
-              className="navbar-progress-fill"
-              style={{ width: `${progress}%` }}
-            />
-            <div className="navbar-progress-label">
-              {AGENT_ORDER.indexOf(currentAgent ?? '') >= 0
-                ? `${AGENT_META_LABELS[currentAgent!]} — ${progress.toFixed(0)}%`
-                : `Starting… ${progress.toFixed(0)}%`}
-            </div>
-          </div>
-        )}
-      </header>
+
+        {/* Scroll cue */}
+        <div className="cinematic-scroll-cue" aria-hidden="true">
+          <div className="scroll-mouse"><div className="scroll-wheel" /></div>
+          <span>Scroll</span>
+        </div>
+      </div>
+      {/* ═══════════════════════════════════════════════════════ */}
 
       <main className="app-main container">
         {/* ── Upload Stage ─────────────────────────────── */}
         {stage === 'upload' && (
           <div className="stage-upload animate-fade-up">
-            <div className="hero-text">
-              <h1>Turn raw clips into a <span className="gradient-text">polished reel</span></h1>
-              <p>Upload 10–20 clips. Describe your vision. Watch 8 AI agents do the rest.</p>
-            </div>
 
             <div className="upload-layout">
               {/* Left: Upload */}
@@ -278,7 +318,7 @@ export default function App() {
               {/* Right: Config */}
               <div className="config-col">
                 <div className="card">
-                  <h3 style={{ marginBottom: 16 }}>🎯 Director's Brief</h3>
+                  <h3 style={{ marginBottom: 16, fontFamily: "'Playfair Display', serif", letterSpacing: '-0.2px' }}>🎯 Director's Brief</h3>
 
                   <label className="form-label" htmlFor="prompt-input">Your Vision</label>
                   <textarea
@@ -350,7 +390,7 @@ export default function App() {
                 <div className="card pipeline-overview">
                   <div className="po-title">🤖 8-Agent Pipeline</div>
                   <div className="po-agents">
-                    {['Scene Extract', 'Quality Check', 'Highlights', 'Captions', 'Brand RAG', 'Story Plan', 'Edit', 'Export'].map((name, i) => (
+                    {['Input', 'Preprocess', 'Whisper', 'Scene', 'Metadata', 'Embedding', 'RAG', 'Planner', 'Caption', 'Editing', 'Review', 'Export', 'Evaluate'].map((name, i) => (
                       <div key={i} className="po-agent">
                         <div className="po-agent-dot" />
                         <span>{name}</span>
@@ -385,14 +425,19 @@ export default function App() {
                 <div className="pi-title">What's happening</div>
                 <div className="pi-steps">
                   {[
-                    "🎬 Extracting scenes from your clips using OpenCV",
-                    "🔍 Scoring blur, brightness, and motion quality",
-                    "✨ Detecting faces, smiles, and audio peaks",
-                    "💬 Generating captions via Gemini Flash",
-                    "🧠 Retrieving brand style via FAISS + BGE Reranker",
+                    "📥 Validating uploaded clips with ffprobe",
+                    "🎞️ Extracting frames and scoring quality with OpenCV",
+                    "🎙️ Transcribing audio with OpenAI Whisper",
+                    "🎬 Describing scenes with Gemini Vision",
+                    "🔍 Detecting objects and emotions with Gemini",
+                    "🔢 Building BGE vector embeddings",
+                    "🧠 Retrieving brand style via FAISS + Reranker",
                     "📖 Planning narrative arc with Gemini Pro",
-                    "✂️ Editing with FFmpeg — transitions, music, subs",
-                    "📤 Exporting final reel + evaluation metrics"
+                    "💬 Generating captions and hashtags via Gemini",
+                    "✂️ Editing with FFmpeg — trim and concatenate",
+                    "✅ Reviewing duration and quality metrics",
+                    "📤 Exporting final reel and thumbnail",
+                    "📊 Calculating final evaluation scores"
                   ].map((step, idx) => {
                     const currentIdx = currentAgent ? AGENT_ORDER.indexOf(currentAgent) : -1;
                     let className = "pi-step";
@@ -417,7 +462,7 @@ export default function App() {
 
             <div className="done-layout">
               <div className="done-left">
-                <VideoPreview result={result} />
+                <VideoPreview result={result} platform={platform} />
               </div>
               <div className="done-right">
                 <AgentGraph agents={agents} />

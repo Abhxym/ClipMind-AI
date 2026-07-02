@@ -32,36 +32,17 @@ def _get_ffprobe() -> str:
 
 
 def _get_video_duration(video_path: str) -> float:
-    """Get actual video duration in seconds using ffprobe."""
-    try:
-        cmd = [
-            _get_ffprobe(), "-v", "quiet",
-            "-print_format", "json",
-            "-show_format",
-            video_path,
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-        data = json.loads(r.stdout)
-        return float(data.get("format", {}).get("duration", 0))
-    except Exception:
-        return 0.0
+    """Get actual video duration in seconds using ffmpeg probe."""
+    from agents.input_agent import _probe_video
+    meta = _probe_video(video_path)
+    return float(meta.get("duration", 0.0))
 
 
 def _get_video_resolution(video_path: str) -> tuple:
     """Get video width and height."""
-    try:
-        cmd = [
-            _get_ffprobe(), "-v", "quiet",
-            "-print_format", "json",
-            "-show_streams", "-select_streams", "v:0",
-            video_path,
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-        data = json.loads(r.stdout)
-        streams = data.get("streams", [{}])
-        return int(streams[0].get("width", 0)), int(streams[0].get("height", 0))
-    except Exception:
-        return 0, 0
+    from agents.input_agent import _probe_video
+    meta = _probe_video(video_path)
+    return int(meta.get("width", 0)), int(meta.get("height", 0))
 
 
 def reviewer_agent_node(state: VideoState) -> VideoState:

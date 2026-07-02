@@ -23,49 +23,71 @@ MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_SIZE_MB", "500")) * 1024 * 1024
 
 
 def _get_ffprobe() -> str:
+    import shutil
     try:
         import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe().replace("ffmpeg", "ffprobe")
+        ff = imageio_ffmpeg.get_ffmpeg_exe()
+        ffp = ff.replace("ffmpeg", "ffprobe")
+        if Path(ffp).exists():
+            return ffp
     except Exception:
-        return "ffprobe"
+        pass
+    system_ffprobe = shutil.which("ffprobe")
+    if system_ffprobe:
+        return system_ffprobe
+    # Fall back to ffmpeg itself — supports all -show_* probing flags
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
 
 
 def _probe_video(path: str) -> Dict[str, Any]:
-    """Run ffprobe and return video metadata dict."""
+    """Run ffmpeg -i and parse its stderr to extract video metadata."""
     try:
-        cmd = [
-            _get_ffprobe(), "-v", "quiet",
-            "-print_format", "json",
-            "-show_streams", "-show_format",
-            path,
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if r.returncode != 0:
-            return {}
-        data = json.loads(r.stdout)
-        fmt = data.get("format", {})
-        streams = data.get("streams", [])
+        import re
+        cmd = [_get_ffprobe(), "-i", path]
+        r = subprocess.run(cmd, capture_output=True, timeout=30)
+        info = r.stderr.decode("utf-8", errors="replace")
 
-        # Find video stream
-        video_stream = next((s for s in streams if s.get("codec_type") == "video"), {})
-        audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
+        if not info:
+            return {"path": path, "error": "No output from ffmpeg"}
 
-        fps_raw = video_stream.get("r_frame_rate", "0/1")
-        try:
-            num, den = fps_raw.split("/")
-            fps = round(int(num) / int(den), 3) if int(den) > 0 else 0
-        except Exception:
-            fps = 0.0
+        # Duration: 00:00:19.71
+        dur_match = re.search(r"Duration:\s+(\d+):(\d+):([\d.]+)", info)
+        duration = 0.0
+        if dur_match:
+            h, m, s = dur_match.groups()
+            duration = int(h) * 3600 + int(m) * 60 + float(s)
+
+        # Video stream: 1920x1080, 24 fps
+        vid_match = re.search(r"Stream.*Video.*?(\d{2,5})x(\d{2,5}).*?([\d.]+)\s+fps", info)
+        width, height, fps = 0, 0, 0.0
+        codec = "unknown"
+        if vid_match:
+            width  = int(vid_match.group(1))
+            height = int(vid_match.group(2))
+            fps    = float(vid_match.group(3))
+        # Codec name from Video stream
+        codec_match = re.search(r"Video:\s+(\w+)", info)
+        if codec_match:
+            codec = codec_match.group(1)
+
+        # Audio stream presence
+        has_audio = "Audio:" in info
+
+        size_bytes = Path(path).stat().st_size
 
         return {
             "path": path,
-            "duration": round(float(fmt.get("duration", 0)), 3),
-            "size_bytes": int(fmt.get("size", 0)),
-            "width": int(video_stream.get("width", 0)),
-            "height": int(video_stream.get("height", 0)),
-            "codec": video_stream.get("codec_name", "unknown"),
+            "duration": round(duration, 3),
+            "size_bytes": size_bytes,
+            "width": width,
+            "height": height,
+            "codec": codec,
             "fps": fps,
-            "has_audio": audio_stream is not None,
+            "has_audio": has_audio,
         }
     except Exception as exc:
         return {"path": path, "error": str(exc)}

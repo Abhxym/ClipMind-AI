@@ -141,15 +141,61 @@ def rag_agent_node(state: VideoState) -> VideoState:
     scene_context = " ".join(d.get("description", "") for d in scene_descs[:3])
     query = f"{user_prompt}. {scene_context}".strip()
 
-    # First try FAISS
-    retrieved = _faiss_search(query, job_id, TOP_K_RETRIEVE)
-    logs.append(f"[rag_agent] FAISS search returned {len(retrieved)} results")
+    retrieved = []
+    brand_pdf_path = state.get("brand_pdf_path")
 
-    # If no FAISS results, fallback to keyword search on loaded docs
+    # 1. Ingest and search attached Brand PDF if present
+    if brand_pdf_path and Path(brand_pdf_path).exists():
+        logs.append(f"[rag_agent] Processing brand PDF: {Path(brand_pdf_path).name}")
+        from tools.pdf_parser import process_brand_pdf
+        from tools.embeddings import embed_texts
+        
+        chunks = process_brand_pdf(brand_pdf_path)
+        if chunks and chunks[0].get("type") == "error":
+            logs.append(f"[rag_agent] Error parsing PDF: {chunks[0].get('text')}")
+        elif chunks:
+            texts = [c["text"] for c in chunks]
+            embeddings = embed_texts(texts)
+            if embeddings is not None:
+                try:
+                    import faiss, numpy as np
+                    dim = embeddings.shape[1]
+                    pdf_index = faiss.IndexFlatIP(dim)
+                    pdf_index.add(embeddings)
+                    
+                    from sentence_transformers import SentenceTransformer
+                    model = SentenceTransformer(EMBEDDING_MODEL)
+                    query_vec = model.encode([query], normalize_embeddings=True)
+                    query_vec = np.array(query_vec, dtype="float32")
+                    
+                    k = min(TOP_K_RETRIEVE, len(chunks))
+                    scores, indices = pdf_index.search(query_vec, k)
+                    
+                    for score, idx in zip(scores[0], indices[0]):
+                        if 0 <= idx < len(chunks):
+                            doc = dict(chunks[idx])
+                            doc["relevance_score"] = round(float(score), 4)
+                            retrieved.append(doc)
+                    logs.append(f"[rag_agent] FAISS retrieved {len(retrieved)} chunks from attached PDF")
+                except Exception as e:
+                    logs.append(f"[rag_agent] PDF FAISS search error: {e}")
+            
+            if not retrieved:
+                logs.append("[rag_agent] Keyword fallback on PDF chunks")
+                retrieved = _keyword_search(query, chunks, TOP_K_RETRIEVE)
+
+    # 2. Fallback to default FAISS if no attached PDF
+    if not retrieved:
+        retrieved = _faiss_search(query, job_id, TOP_K_RETRIEVE)
+        if retrieved:
+            logs.append(f"[rag_agent] FAISS search returned {len(retrieved)} results from project index")
+
+    # 3. Fallback to keyword search on loaded docs if FAISS failed
     if not retrieved:
         all_docs = _load_docs(job_id)
-        logs.append(f"[rag_agent] Keyword fallback on {len(all_docs)} docs")
-        retrieved = _keyword_search(query, all_docs, TOP_K_RETRIEVE)
+        if all_docs:
+            logs.append(f"[rag_agent] Keyword fallback on {len(all_docs)} docs")
+            retrieved = _keyword_search(query, all_docs, TOP_K_RETRIEVE)
 
     # Rerank if we have enough candidates
     if len(retrieved) > TOP_K_RERANK:

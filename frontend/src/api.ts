@@ -61,3 +61,18 @@ export function createWSConnection(jobId: string, onMessage: (msg: unknown) => v
   ws.onerror = () => console.warn('WS error')
   return ws
 }
+
+export async function enhanceVideo(jobId: string, filterType: string, musicTrack: string) {
+  const url = `${BASE}/jobs/${jobId}/enhance`
+  const body = {
+    filter_type: filterType,
+    music_track: musicTrack,
+  }
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}

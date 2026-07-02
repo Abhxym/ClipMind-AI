@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 from memory.state import VideoState
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL_CAPTION", "gemini-1.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
 
 def _encode_image(path: str) -> Optional[str]:
@@ -33,10 +33,8 @@ def _encode_image(path: str) -> Optional[str]:
 def _describe_with_gemini(frame_path: str, clip_index: int) -> Dict[str, Any]:
     """Use Gemini Vision to describe a scene frame."""
     try:
-        import google.generativeai as genai
-
-        genai.configure(api_key=GOOGLE_API_KEY)
-        model = genai.GenerativeModel(GEMINI_MODEL)
+        from google import genai
+        client = genai.Client(api_key=GOOGLE_API_KEY)
 
         import PIL.Image
         img = PIL.Image.open(frame_path)
@@ -50,7 +48,10 @@ def _describe_with_gemini(frame_path: str, clip_index: int) -> Dict[str, Any]:
             "\"visual_quality\": 7, \"emotional_impact\": 6, \"cinematic_value\": 7}"
         )
 
-        response = model.generate_content([prompt, img])
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[prompt, img]
+        )
         text = response.text.strip()
 
         # Parse JSON from response

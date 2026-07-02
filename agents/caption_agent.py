@@ -17,7 +17,7 @@ from typing import Any, Dict, List
 from memory.state import VideoState
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL_CAPTION = os.getenv("GEMINI_MODEL_CAPTION", "gemini-1.5-flash")
+GEMINI_MODEL_CAPTION = os.getenv("GEMINI_MODEL_CAPTION", "gemini-2.0-flash")
 
 PLATFORM_HASHTAG_COUNT = {
     "instagram": 25,
@@ -88,12 +88,14 @@ Respond ONLY with valid JSON:
 def _generate_with_gemini(state: VideoState) -> Dict[str, Any]:
     """Use Gemini Flash to generate captions."""
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=GOOGLE_API_KEY)
-        model = genai.GenerativeModel(GEMINI_MODEL_CAPTION)
+        from google import genai
+        client = genai.Client(api_key=GOOGLE_API_KEY)
 
         prompt = _build_caption_prompt(state)
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=GEMINI_MODEL_CAPTION,
+            contents=prompt
+        )
         text = response.text.strip()
 
         if "```json" in text:

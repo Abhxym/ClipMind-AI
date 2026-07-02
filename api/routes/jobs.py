@@ -20,6 +20,8 @@ from api.models import (
     JobResultResponse,
     JobStatus,
     JobStatusResponse,
+    EnhanceVideoRequest,
+    EnhanceVideoResponse,
 )
 
 
@@ -131,9 +133,14 @@ async def create_job(
     if not clip_paths:
         raise HTTPException(400, "At least one clip path required")
 
+    # Resolve to absolute paths so the background thread can find files
+    # regardless of working directory
+    resolved_clips = []
     for p in clip_paths:
-        if not Path(p).exists():
+        abs_path = Path(p) if Path(p).is_absolute() else (Path.cwd() / p).resolve()
+        if not abs_path.exists():
             raise HTTPException(400, f"Clip file not found: {p}")
+        resolved_clips.append(str(abs_path))
 
     job_id = str(uuid.uuid4())
     _jobs[job_id] = {
@@ -148,7 +155,7 @@ async def create_job(
     }
 
     loop = asyncio.get_running_loop()
-    background_tasks.add_task(_run_pipeline_sync, job_id, clip_paths, request, loop)
+    background_tasks.add_task(_run_pipeline_sync, job_id, resolved_clips, request, loop)
 
     return JobCreateResponse(
         job_id=job_id,
@@ -241,3 +248,92 @@ async def download_file(job_id: str, filename: str):
     if not path.exists():
         raise HTTPException(404, "File not found")
     return FileResponse(str(path), filename=filename)
+
+
+@router.post("/{job_id}/enhance", response_model=EnhanceVideoResponse)
+async def enhance_video(job_id: str, request: EnhanceVideoRequest):
+    import subprocess
+    job = _get_job(job_id)
+    if job["status"] != JobStatus.done:
+        raise HTTPException(400, "Job must be completed to enhance")
+    
+    state = job.get("final_state")
+    if not state or not state.get("final_video"):
+        raise HTTPException(400, "No final video found for this job")
+        
+    input_video = Path(state["final_video"])
+    if not input_video.exists():
+        raise HTTPException(404, "Original video file not found")
+        
+    output_video = OUTPUT_DIR / f"{job_id}_enhanced.mp4"
+    
+    ffmpeg_cmd = [
+        str(Path.cwd() / ".venv/Lib/site-packages/imageio_ffmpeg/binaries/ffmpeg-win-x86_64-v7.1.exe"),
+        "-y", 
+        "-i", str(input_video)
+    ]
+    
+    filter_complex = []
+    
+    # Video filters
+    v_filter = ""
+    if request.filter_type == "vivid":
+        v_filter = "eq=saturation=1.5:contrast=1.1"
+    elif request.filter_type == "cinematic":
+        v_filter = "colorbalance=rs=.05:gs=.05:bs=-.1"
+    elif request.filter_type == "bw":
+        v_filter = "hue=s=0"
+    elif request.filter_type == "vintage":
+        v_filter = "eq=saturation=0.5:contrast=0.8:gamma=1.2"
+        
+    if v_filter:
+        filter_complex.append(f"[0:v]{v_filter}[vout]")
+        
+    # Audio mixing
+    audio_inputs = 1
+    if request.music_track != "none":
+        music_path = Path.cwd() / f"api/assets/music/{request.music_track}.mp3"
+        if music_path.exists():
+            ffmpeg_cmd.extend(["-i", str(music_path)])
+            # Mix original audio (0:a) with lowered background music (1:a)
+            # volume=0.2 for music so it doesn't overpower
+            filter_complex.append(f"[1:a]volume=0.2[bgm];[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]")
+            audio_inputs = 2
+            
+    if filter_complex:
+        ffmpeg_cmd.extend(["-filter_complex", ";".join(filter_complex)])
+        if v_filter:
+            ffmpeg_cmd.extend(["-map", "[vout]"])
+        else:
+            ffmpeg_cmd.extend(["-map", "0:v"])
+            
+        if audio_inputs == 2:
+            ffmpeg_cmd.extend(["-map", "[aout]"])
+        else:
+            ffmpeg_cmd.extend(["-map", "0:a"])
+    else:
+        # Just copy if no filters or music (though why call enhance?)
+        ffmpeg_cmd.extend(["-c", "copy"])
+        
+    # Re-encode settings if filtered
+    if v_filter or audio_inputs == 2:
+        ffmpeg_cmd.extend(["-c:v", "libx264", "-crf", "23", "-preset", "fast", "-c:a", "aac", "-b:a", "128k"])
+        
+    ffmpeg_cmd.append(str(output_video))
+    
+    try:
+        subprocess.run(ffmpeg_cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        print("FFMPEG ERROR:", e.stderr.decode())
+        raise HTTPException(500, f"FFmpeg processing failed: {e.stderr.decode()}")
+        
+    # Update state to point to new enhanced video for future downloads/views
+    job["final_state"]["final_video"] = str(output_video)
+        
+    return EnhanceVideoResponse(
+        job_id=job_id,
+        status="done",
+        enhanced_video_url=f"/outputs/{output_video.name}",
+        message="Video enhanced successfully"
+    )
+

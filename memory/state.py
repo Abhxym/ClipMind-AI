@@ -59,6 +59,13 @@ class VideoState(TypedDict):
     errors: Annotated[List[Dict[str, Any]], operator.add]
     retry_count: Dict[str, int]                 # Track retries for Review->Edit loops
 
+    # ── Internal Agent State ──
+    _clip_metadata: List[Dict[str, Any]]
+    _video_title: Optional[str]
+    _hashtags: List[str]
+    _overall_tone: Optional[str]
+    _edited_video_path: Optional[str]
+
 
 def create_initial_state(
     job_id: str,
@@ -88,5 +95,10 @@ def create_initial_state(
         logs=[],
         current_agent="",
         errors=[],
-        retry_count={}
+        retry_count={},
+        _clip_metadata=[],
+        _video_title=None,
+        _hashtags=[],
+        _overall_tone=None,
+        _edited_video_path=None
     )
