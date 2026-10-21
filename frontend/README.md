@@ -5,6 +5,7 @@ React 19 + Vite + TypeScript front end for the ClipMind AI pipeline. See the [ma
 ```bash
 npm install
 npm run dev      # http://localhost:5173 — proxies /api and /outputs to http://localhost:8000
+                 # (override with API_PROXY_TARGET=http://localhost:<port>)
 npm run build    # type-check + production build into dist/
 npm run lint     # oxlint
 ```

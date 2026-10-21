@@ -12,6 +12,9 @@ frames, transcribe speech with Whisper, describe each scene with Gemini Vision, 
 RAG (FAISS + a BGE reranker), plan a story arc, write captions, cut the video with FFmpeg, review it, and
 export it with a thumbnail and an evaluation report. The React dashboard shows every agent live as it runs.
 
+![ClipMind AI dashboard: upload clips, write a brief, and let 13 agents build the reel](docs/img/hero.png)
+*The ClipMind AI dashboard. Clips and a brief go in; the agent pipeline, the finished reel and its evaluation come out.*
+
 ## Design questions
 
 1. Can a graph of narrow, single-purpose agents (each one testable on its own) produce a usable reel
@@ -90,6 +93,18 @@ The graph is in [graphs/workflow.py](graphs/workflow.py).
 - **Failure handling:** every Gemini/Whisper/model step has a fallback and logs why it was used, so the
   pipeline always reaches export. Each run is checkpointed per job in `pipeline/checkpoints.db`.
 
+## Screenshots
+
+| Upload and brief | Pipeline running |
+|---|---|
+| ![Clip guide, three uploaded clips, brand guide indexed and the Director's Brief](docs/img/upload.png) | ![Live agent graph at 69%: nine agents done, Video Editing running](docs/img/processing.png) |
+| Drop in clips and an optional brand-guide PDF, write the brief, pick a platform and a length. | Every agent reports over the WebSocket as it starts and finishes; the right column explains each step. |
+
+| Finished reel |
+|---|
+| <img src="docs/img/result.png" alt="Finished 9:16 reel with player, Studio filters and music, agent pipeline and evaluation report" width="560"> |
+| The 9:16 reel with download and Studio re-render (filters, music), the completed pipeline, and the evaluation report: duration accuracy, edit success, errors and per-agent latency. Captured with synthetic test clips and no Gemini key, so title, captions and hashtags come from the fallback paths. |
+
 ## Results at a glance
 
 End-to-end smoke test on 2026-10-21: three synthetic 8-second 720p clips, 15-second Instagram target,
@@ -127,7 +142,7 @@ python -m api.main
 # frontend (second terminal): dashboard on :5173, proxies /api and /outputs to :8000
 cd frontend
 npm install
-npm run dev
+npm run dev                             # API not on :8000? set API_PROXY_TARGET=http://localhost:<port>
 
 # or both at once on Windows
 .\start.ps1

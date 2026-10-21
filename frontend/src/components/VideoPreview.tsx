@@ -136,11 +136,11 @@ export function VideoPreview({ result, platform }: VideoPreviewProps) {
       )}
 
       {/* ── Captions ─────────────────────────────────── */}
-      {result.captions.length > 0 && (
+      {result.captions.some(c => c.trim()) && (
         <div className="vp-captions">
           <div className="vp-section-label">💬 Scene Captions</div>
           <div className="vp-caption-list">
-            {result.captions.map((cap, i) => (
+            {result.captions.filter(c => c.trim()).map((cap, i) => (
               <div key={i} className="vp-caption-item">
                 <span className="vp-caption-num">{i + 1}</span>
                 <span className="vp-caption-text">{cap}</span>
@@ -160,8 +160,10 @@ export function VideoPreview({ result, platform }: VideoPreviewProps) {
           flex-direction: column;
           gap: 20px;
         }
-        .vp-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-        .vp-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 8px; }
+        .vp-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 16px; }
+        .vp-header > div { min-width: 0; }
+        .vp-header > a { flex-shrink: 0; white-space: nowrap; }
+        .vp-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 8px; overflow-wrap: anywhere; }
         .vp-meta { display: flex; gap: 8px; flex-wrap: wrap; }
 
         .vp-player {
