@@ -1,8 +1,8 @@
 """
-Metadata Agent — AI Video Director
+Metadata Agent — ClipMind AI
 =====================================
 Pipeline Step 5: Object Detection & Emotion Analysis.
-  - Uses Gemini Vision (or YOLO + DeepFace fallback) to detect objects,
+  - Uses Gemini Vision (or a YOLOv8 fallback, if ultralytics is installed) to detect objects,
     identify people, label emotions, and compute an excitement score
   - Merges scene descriptions with object metadata
   - Output feeds the Embedding Agent for vector search
@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 from memory.state import VideoState
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 def _analyze_with_gemini(frame_path: str, clip_index: int, scene_desc: str) -> Dict[str, Any]:
@@ -69,7 +69,7 @@ def _analyze_with_gemini(frame_path: str, clip_index: int, scene_desc: str) -> D
             "source": "gemini",
         }
     except ImportError:
-        return _fallback_metadata(frame_path, clip_index, scene_desc, "google-generativeai not installed")
+        return _fallback_metadata(frame_path, clip_index, scene_desc, "google-genai not installed")
     except json.JSONDecodeError:
         return _fallback_metadata(frame_path, clip_index, scene_desc, "JSON parse error")
     except Exception as exc:

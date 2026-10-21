@@ -1,3 +1,3 @@
 """
-AI Video Director — Evaluation Package
+ClipMind AI — Evaluation Package
 """

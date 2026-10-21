@@ -1,4 +1,4 @@
 """
-Tool stubs for the AI Video Director pipeline.
+Tool stubs for the ClipMind AI pipeline.
 Each tool wraps a specific capability used by agents.
 """

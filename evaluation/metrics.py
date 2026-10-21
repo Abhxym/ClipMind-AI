@@ -1,5 +1,5 @@
 """
-Evaluation Metrics — AI Video Director
+Evaluation Metrics — ClipMind AI
 =======================================
 Computes and logs all evaluation metrics from a finished pipeline run.
 Outputs CSV rows for benchmark comparison.
@@ -16,11 +16,10 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from memory.langgraph_state import VideoDirectorState
+from memory.state import VideoState
 
 
 EVAL_OUTPUT_DIR = Path("evaluation/results")
-EVAL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ── Individual Metric Functions ────────────────────────────────────────────────
@@ -116,14 +115,18 @@ def hallucination_check(captions: List[str], transcript: str) -> float:
 
 # ── Full Run Report ────────────────────────────────────────────────────────────
 
-def generate_report(state: VideoDirectorState, config: Optional[Dict] = None) -> dict:
+def generate_report(state: VideoState, config: Optional[Dict] = None) -> dict:
     """
-    Aggregate all metrics from a completed pipeline run into a report dict.
+    Aggregate metrics from a completed pipeline run (the final VideoState)
+    into one flat report row.
     config: optional benchmark config (chunk_size, backend, top_k, model)
     """
     config = config or {}
     timings = state.get("agent_timings", {})
     lat = latency_breakdown(timings)
+    ev = state.get("evaluation_score") or {}
+    captions = [c.get("caption", "") for c in state.get("captions", [])]
+    transcript = " ".join(s.get("text", "") for s in state.get("transcript", []))
 
     report = {
         # ── Identity
@@ -135,32 +138,23 @@ def generate_report(state: VideoDirectorState, config: Optional[Dict] = None) ->
         "chunk_size": config.get("chunk_size", int(os.getenv("CHUNK_SIZE", "512"))),
         "top_k_retrieve": config.get("top_k_retrieve", int(os.getenv("TOP_K_RETRIEVE", "10"))),
         "top_k_rerank": config.get("top_k_rerank", int(os.getenv("TOP_K_RERANK", "3"))),
-        "gemini_model": config.get("model", os.getenv("GEMINI_MODEL_PLANNER", "gemini-1.5-pro")),
-        "use_reranker": config.get("use_reranker", True),
+        "gemini_model": config.get("model", os.getenv("GEMINI_MODEL_PLANNER", "gemini-2.5-pro")),
 
         # ── Scene metrics
-        "total_scenes": state.get("scene_count", 0),
-        "filtered_scenes": state.get("filtered_count", 0),
-        "selected_scenes": len(state.get("story_arc", [])),
-        "filter_rate_pct": round(
-            (1 - state.get("filtered_count", 0) / max(1, state.get("scene_count", 1))) * 100, 1
-        ),
+        "total_clips": len(state.get("uploaded_videos", [])),
+        "frames_extracted": len(state.get("frames", [])),
+        "frames_quality_ok": sum(1 for f in state.get("frames", []) if f.get("quality_ok")),
+        "selected_scenes": len(state.get("story_plan", [])),
 
-        # ── RAG metrics
-        "retrieved_docs": len(state.get("retrieved_doc_ids", [])),
-        "reranked_docs": len(state.get("reranked_doc_ids", [])),
-        "retrieval_precision_at_k": state.get("evaluation", {}).get("retrieval_precision_at_k", 0.0)
-            if state.get("evaluation") else 0.0,
-        "reranker_lift": state.get("evaluation", {}).get("reranker_lift", 0.0)
-            if state.get("evaluation") else 0.0,
+        # ── RAG / captions
+        "retrieved_docs": len(state.get("retrieved_brand_docs", [])),
+        "caption_count": len(captions),
+        "avg_caption_length": round(sum(len(c) for c in captions) / max(1, len(captions)), 1),
+        "hallucination_rate": hallucination_check(captions, transcript),
 
-        # ── Caption metrics
-        "caption_count": len(state.get("captions", [])),
-        "avg_caption_length": state.get("evaluation", {}).get("caption_length_avg", 0.0)
-            if state.get("evaluation") else 0.0,
-        "hallucination_rate": hallucination_check(
-            state.get("captions", []), state.get("transcript", "")
-        ),
+        # ── Output quality
+        "duration_accuracy": ev.get("duration_accuracy", 0.0),
+        "edit_success_rate": ev.get("edit_success_rate", 0.0),
 
         # ── Latency
         "latency_total_ms": lat["total_ms"],
@@ -168,11 +162,8 @@ def generate_report(state: VideoDirectorState, config: Optional[Dict] = None) ->
         "bottleneck_agent": lat["bottleneck_agent"],
         **{f"latency_{k}_ms": v for k, v in timings.items()},
 
-        # ── Cost (approximate)
-        "llm_tokens_used": state.get("evaluation", {}).get("llm_tokens_used", 0)
-            if state.get("evaluation") else 0,
         "error_count": len(state.get("errors", [])),
-        "success": state.get("final_video_path") is not None,
+        "success": bool(state.get("final_video")),
     }
     return report
 
@@ -209,15 +200,15 @@ def print_summary(report: dict):
     table.add_column("Value", style="green")
 
     key_metrics = [
-        ("Total Scenes", f"{report['total_scenes']}"),
-        ("After Quality Filter", f"{report['filtered_scenes']}"),
+        ("Clips", f"{report['total_clips']}"),
+        ("Frames (quality OK)", f"{report['frames_quality_ok']}/{report['frames_extracted']}"),
         ("Selected for Reel", f"{report['selected_scenes']}"),
-        ("Retrieval P@K", f"{report['retrieval_precision_at_k']:.3f}"),
-        ("Reranker Lift", f"{report['reranker_lift']:+.3f}"),
+        ("Brand Docs Retrieved", f"{report['retrieved_docs']}"),
+        ("Duration Accuracy", f"{report['duration_accuracy']:.3f}"),
+        ("Edit Success Rate", f"{report['edit_success_rate']:.0%}"),
         ("Hallucination Rate", f"{report['hallucination_rate']:.2%}"),
         ("Total Latency", f"{report['latency_total_s']:.1f}s"),
         ("Bottleneck", report["bottleneck_agent"]),
-        ("LLM Tokens", str(report["llm_tokens_used"])),
         ("Errors", str(report["error_count"])),
         ("Success", "✅" if report["success"] else "❌"),
     ]

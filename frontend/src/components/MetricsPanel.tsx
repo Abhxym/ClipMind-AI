@@ -19,7 +19,7 @@ function MetricCard({ label, value, sub, color }: {
 
 export function MetricsPanel({ result, onToast }: MetricsPanelProps) {
   const ev = result.evaluation as Record<string, number> | undefined
-  const timings = result.agent_timings
+  const timings = result.agent_timings ?? {}
   const totalMs = Object.values(timings).reduce((a, b) => a + b, 0)
   const bottleneck = Object.entries(timings).sort((a, b) => b[1] - a[1])[0]
 
@@ -36,27 +36,28 @@ export function MetricsPanel({ result, onToast }: MetricsPanelProps) {
           color="#8b5cf6"
         />
         <MetricCard
-          label="Retrieval P@K"
-          value={ev ? ev['retrieval_precision_at_k']?.toFixed(3) ?? '—' : '—'}
-          sub="after reranking"
+          label="Duration Accuracy"
+          value={ev?.duration_accuracy !== undefined ? `${(ev.duration_accuracy * 100).toFixed(0)}%` : '—'}
+          sub={ev?.actual_duration_s !== undefined ? `${ev.actual_duration_s}s of ${ev.target_duration_s}s` : 'vs target'}
           color="#06b6d4"
         />
         <MetricCard
-          label="Reranker Lift"
-          value={ev ? (ev['reranker_lift'] >= 0 ? '+' : '') + ev['reranker_lift']?.toFixed(3) : '—'}
-          sub="BGE cross-encoder"
+          label="Edit Success"
+          value={ev?.edit_success_rate !== undefined ? `${(ev.edit_success_rate * 100).toFixed(0)}%` : '—'}
+          sub={ev?.review_retries ? `${ev.review_retries} review retries` : 'FFmpeg trims'}
           color="#10b981"
         />
         <MetricCard
           label="Scenes Selected"
-          value={String(result.evaluation ? (ev?.['scene_selection_count'] ?? '—') : result.captions.length)}
-          sub="in final reel"
+          value={String(ev?.scene_count ?? result.captions.length)}
+          sub={ev?.brand_docs_used ? `${ev.brand_docs_used} brand docs used` : 'in final reel'}
           color="#f59e0b"
         />
         <MetricCard
           label="Errors"
-          value={ev ? String(ev['error_count'] ?? 0) : '0'}
-          color={ev && ev['error_count'] > 0 ? '#ef4444' : '#10b981'}
+          value={String(ev?.error_count ?? 0)}
+          sub="logged by agents"
+          color={ev && ev.error_count > 0 ? '#ef4444' : '#10b981'}
         />
         <MetricCard
           label="Bottleneck"

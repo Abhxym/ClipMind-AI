@@ -58,6 +58,14 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null)
   const wsRef = useRef<WebSocket | null>(null)
+  const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const stopTracking = useCallback(() => {
+    if (pollerRef.current) clearInterval(pollerRef.current)
+    pollerRef.current = null
+    wsRef.current?.close()
+    wsRef.current = null
+  }, [])
 
   const showToast = useCallback((msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type })
@@ -86,7 +94,7 @@ export default function App() {
         const idx = AGENT_ORDER.indexOf(m.agent)
         if (idx >= 0) setProgress(((idx + 1) / AGENT_ORDER.length) * 100)
       }
-      if (m.status === 'error') updateAgent(m.agent, 'error')
+      if (m.status === 'error' && m.agent !== 'pipeline') updateAgent(m.agent, 'error')
       // Also accept explicit progress_pct if server sends it
       if (m.progress_pct !== undefined && m.progress_pct > 0) setProgress(m.progress_pct)
     }
@@ -94,6 +102,7 @@ export default function App() {
 
   const startJob = async () => {
     if (clips.length === 0) return
+    stopTracking()
     setError(null)
     setStage('processing')
     setAgents(defaultAgents())
@@ -114,26 +123,22 @@ export default function App() {
       const ws = createWSConnection(id, handleWSMessage)
       wsRef.current = ws
 
-      // Poll for completion every 5s as backup
-      const poller = setInterval(async () => {
+      // Poll for completion every 5s (the WebSocket only drives the live progress view)
+      pollerRef.current = setInterval(async () => {
         try {
-          const r = await getJobResult(id)
+          const r: JobResult = await getJobResult(id)
           if (r.status === 'done') {
-            clearInterval(poller)
+            stopTracking()
             setResult(r)
             setProgress(100)
             setStage('done')
-            ws.close()
           } else if (r.status === 'failed') {
-            clearInterval(poller)
-            setError('Pipeline failed — check logs for details')
+            stopTracking()
+            setError(r.error ? `Pipeline failed: ${r.error}` : 'Pipeline failed — check the API logs for details')
             setStage('error')
-            ws.close()
           }
         } catch (e: unknown) {
-          // 202 means still processing — ignore; anything else surface it
-          const msg = e instanceof Error ? e.message : String(e)
-          if (!msg.includes('202')) console.warn('Poll error:', msg)
+          console.warn('Poll error:', e instanceof Error ? e.message : String(e))
         }
       }, 5000)
     } catch (e: unknown) {
@@ -143,9 +148,7 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
-    return () => { wsRef.current?.close() }
-  }, [])
+  useEffect(() => stopTracking, [stopTracking])
 
   const reset = () => {
     setStage('upload')
@@ -157,7 +160,7 @@ export default function App() {
     setResult(null)
     setError(null)
     setToast(null)
-    wsRef.current?.close()
+    stopTracking()
   }
 
   return (
@@ -184,7 +187,7 @@ export default function App() {
               <div className="header-brand">
                 <span className="header-logo">🎬</span>
                 <div>
-                  <div className="header-title">AI Video Director</div>
+                  <div className="header-title">ClipMind AI</div>
                   <div className="header-sub">Multi-agent reel generation · LangGraph · RAG · Gemini</div>
                 </div>
               </div>
@@ -221,7 +224,7 @@ export default function App() {
           </h1>
           <div className="cinematic-rule" />
           <p className="cinematic-subtitle">
-            Upload 10–20 clips. Describe your vision. Watch <strong>8 AI agents</strong> do the rest.
+            Upload 10–20 clips. Describe your vision. Watch <strong>13 AI agents</strong> do the rest.
           </p>
         </div>
 
@@ -261,8 +264,8 @@ export default function App() {
                     <div className="clip-guide__item clip-guide__item--good">
                       <div className="clip-guide__item-icon">✅</div>
                       <div>
-                        <div className="clip-guide__item-label">People &amp; faces</div>
-                        <div className="clip-guide__item-desc">Face/smile detection boosts highlight scores</div>
+                        <div className="clip-guide__item-label">People &amp; action</div>
+                        <div className="clip-guide__item-desc">Gemini rates excitement and emotion per clip — lively shots get picked first</div>
                       </div>
                     </div>
                     <div className="clip-guide__item clip-guide__item--good">
@@ -276,14 +279,14 @@ export default function App() {
                       <div className="clip-guide__item-icon">❌</div>
                       <div>
                         <div className="clip-guide__item-label">Blurry / shaky</div>
-                        <div className="clip-guide__item-desc">Low Laplacian score — filtered out by quality agent</div>
+                        <div className="clip-guide__item-desc">Low Laplacian sharpness — skipped when picking representative frames</div>
                       </div>
                     </div>
                     <div className="clip-guide__item clip-guide__item--bad">
                       <div className="clip-guide__item-icon">❌</div>
                       <div>
                         <div className="clip-guide__item-label">Very dark / overexposed</div>
-                        <div className="clip-guide__item-desc">Brightness outside 20–240 range gets low scores</div>
+                        <div className="clip-guide__item-desc">Brightness outside the 20–240 range is marked low quality</div>
                       </div>
                     </div>
                     <div className="clip-guide__item clip-guide__item--bad">
@@ -388,7 +391,7 @@ export default function App() {
 
                 {/* Pipeline overview */}
                 <div className="card pipeline-overview">
-                  <div className="po-title">🤖 8-Agent Pipeline</div>
+                  <div className="po-title">🤖 13-Agent Pipeline</div>
                   <div className="po-agents">
                     {['Input', 'Preprocess', 'Whisper', 'Scene', 'Metadata', 'Embedding', 'RAG', 'Planner', 'Caption', 'Editing', 'Review', 'Export', 'Evaluate'].map((name, i) => (
                       <div key={i} className="po-agent">
@@ -413,7 +416,7 @@ export default function App() {
                 <div className="progress-bar" style={{ height: 8 }}>
                   <div className="progress-fill" style={{ width: `${progress}%` }} />
                 </div>
-                <div className="progress-label">{progress.toFixed(0)}% · {currentAgent?.replace('_', ' ') || 'starting…'}</div>
+                <div className="progress-label">{progress.toFixed(0)}% · {(currentAgent && AGENT_META_LABELS[currentAgent]) || 'starting…'}</div>
               </div>
             </div>
 

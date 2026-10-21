@@ -1,17 +1,16 @@
 """
-Benchmark Script — AI Video Director
+Benchmark Script — ClipMind AI
 ======================================
 Systematically compares:
   • FAISS vs ChromaDB retrieval speed + accuracy
   • No reranker vs BGE Reranker (Precision@K lift)
-  • Gemini Flash vs Gemini Pro
-  • Chunk sizes: 256 / 512 / 1024 tokens
+  • Chunk sizes: 256 / 512 / 1024 words
   • Top-K: 3 / 5 / 10 retrieved docs
 
 Produces a rich comparison table + CSV for the research-style demo.
 
 Usage:
-    python -m evaluation.benchmark --brand-pdf path/to/brand.pdf --query "hackathon reel"
+    python -m evaluation.benchmark --brand-pdf rag/brand_kb/sample_brand_guide.txt --query "hackathon reel"
 """
 
 from __future__ import annotations
@@ -23,7 +22,6 @@ from typing import List
 
 import pandas as pd
 
-from evaluation.metrics import print_summary
 from rag.reranker import BGEReranker
 from rag.vector_db import VectorDatabase
 
@@ -43,20 +41,22 @@ def _benchmark_retrieval(
     use_reranker: bool,
 ) -> dict:
     """Run one benchmark configuration and return metrics dict."""
-    import os
-    os.environ["VECTOR_DB_BACKEND"] = backend
+    import tempfile
 
-    db = VectorDatabase(backend=backend)
+    # Fresh store per configuration so chunk sizes never mix in one index
+    with tempfile.TemporaryDirectory(prefix=f"bench_{backend}_", ignore_cleanup_errors=True) as tmp:
+        db = VectorDatabase(backend=backend, path=tmp)
 
-    # Index
-    t0 = time.perf_counter()
-    db.index_document(pdf_path, doc_id=f"bench_{backend}_{chunk_size}", chunk_size=chunk_size)
-    index_ms = (time.perf_counter() - t0) * 1000
+        # Index
+        t0 = time.perf_counter()
+        db.index_document(pdf_path, doc_id=f"bench_{backend}_{chunk_size}", chunk_size=chunk_size)
+        index_ms = (time.perf_counter() - t0) * 1000
 
-    # Retrieve
-    t0 = time.perf_counter()
-    results = db.search(query, top_k=top_k)
-    retrieve_ms = (time.perf_counter() - t0) * 1000
+        # Retrieve
+        t0 = time.perf_counter()
+        results = db.search(query, top_k=top_k)
+        retrieve_ms = (time.perf_counter() - t0) * 1000
+        del db  # release Chroma's file handles before the temp dir is removed (Windows)
 
     retrieved_texts = [r["text"] for r in results]
 
@@ -101,7 +101,7 @@ def run_full_benchmark(pdf_path: str, query: str) -> pd.DataFrame:
     from rich.progress import track
 
     console = Console()
-    console.print("\n[bold cyan]🔬 AI Video Director — RAG Benchmark Suite[/bold cyan]\n")
+    console.print("\n[bold cyan]🔬 ClipMind AI — RAG Benchmark Suite[/bold cyan]\n")
 
     configs = []
     for backend in BACKENDS:
@@ -187,8 +187,8 @@ def save_results(df: pd.DataFrame, output_path: str = "evaluation/results/rag_be
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AI Video Director RAG Benchmark")
-    parser.add_argument("--brand-pdf", required=True, help="Path to brand guide PDF")
+    parser = argparse.ArgumentParser(description="ClipMind AI RAG Benchmark")
+    parser.add_argument("--brand-pdf", required=True, help="Brand guide to index (.pdf, .txt, .md or .docx)")
     parser.add_argument("--query", default="color palette transitions captions music brand style")
     parser.add_argument("--output", default="evaluation/results/rag_benchmark.csv")
     args = parser.parse_args()

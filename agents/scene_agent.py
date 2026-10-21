@@ -1,9 +1,9 @@
 """
-Scene Agent — AI Video Director
+Scene Agent — ClipMind AI
 =================================
 Pipeline Step 4: Scene Understanding using Gemini Vision.
   - Samples one representative frame per clip
-  - Sends the frame to Gemini 1.5 Flash for a rich scene description
+  - Sends the frame to Gemini (GEMINI_MODEL) for a rich scene description
   - Falls back to BLIP-2 or a generic description if Gemini unavailable
   - Produces scene_descriptions list consumed by metadata and planner agents
 """
@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 from memory.state import VideoState
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 def _encode_image(path: str) -> Optional[str]:
@@ -73,7 +73,7 @@ def _describe_with_gemini(frame_path: str, clip_index: int) -> Dict[str, Any]:
             "source": "gemini",
         }
     except ImportError:
-        return _fallback_description(frame_path, clip_index, "google-generativeai not installed")
+        return _fallback_description(frame_path, clip_index, "google-genai not installed")
     except json.JSONDecodeError:
         # Gemini responded but not valid JSON — extract text response as description
         try:
