@@ -117,6 +117,21 @@ def _generate_with_gemini(state: VideoState) -> Tuple[Dict[str, Any], str]:
         return {}, f"{type(exc).__name__}: {str(exc)[:120]}"
 
 
+def _short_caption(text: str, max_words: int = 8) -> str:
+    """First sentence of a description, cut to max_words on a word boundary."""
+    first = text.split(". ")[0].strip().rstrip(".")
+    words = first.split()
+    return " ".join(words[:max_words]) + ("..." if len(words) > max_words else "")
+
+
+def _short_title(text: str, max_chars: int = 60) -> str:
+    """Brief → title: cut on a word boundary instead of mid-word."""
+    text = " ".join(text.split())
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rsplit(" ", 1)[0].rstrip(",.;:") + "..."
+
+
 def _fallback_captions(state: VideoState) -> Dict[str, Any]:
     """Generate basic captions without Gemini."""
     story_plan = state.get("story_plan", [])
@@ -128,12 +143,10 @@ def _fallback_captions(state: VideoState) -> Dict[str, Any]:
     for entry in story_plan:
         clip_idx = entry.get("clip_index", 0)
         hint = entry.get("caption_hint", "")
-        if hint:
-            caption = hint[:40]
-        else:
+        if not hint:
             desc_match = next((d for d in scene_descriptions if d.get("clip_index") == clip_idx), {})
-            caption = desc_match.get("description", "Amazing moment")[:40]
-        scene_captions.append(caption)
+            hint = desc_match.get("description", "")
+        scene_captions.append(_short_caption(hint))  # "" = no caption burned in
 
     default_hashtags = {
         "instagram": ["#reels", "#viral", "#content", "#video", "#creative", "#trending"],
@@ -143,7 +156,7 @@ def _fallback_captions(state: VideoState) -> Dict[str, Any]:
     }
 
     return {
-        "video_title": user_prompt[:60] or "AI Generated Reel",
+        "video_title": _short_title(user_prompt) or "AI Generated Reel",
         "overall_tone": "dynamic",
         "music_mood": "upbeat electronic",
         "scene_captions": scene_captions,

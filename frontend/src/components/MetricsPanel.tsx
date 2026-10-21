@@ -50,7 +50,7 @@ export function MetricsPanel({ result, onToast }: MetricsPanelProps) {
         <MetricCard
           label="Scenes Selected"
           value={String(ev?.scene_count ?? result.captions.length)}
-          sub={ev?.brand_docs_used ? `${ev.brand_docs_used} brand docs used` : 'in final reel'}
+          sub={ev?.brand_docs_used ? `${ev.brand_docs_used} brand doc${ev.brand_docs_used === 1 ? '' : 's'} used` : 'in final reel'}
           color="#f59e0b"
         />
         <MetricCard

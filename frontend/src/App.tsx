@@ -428,16 +428,16 @@ export default function App() {
                 <div className="pi-title">What's happening</div>
                 <div className="pi-steps">
                   {[
-                    "📥 Validating uploaded clips with ffprobe",
+                    "📥 Validating uploaded clips with FFmpeg",
                     "🎞️ Extracting frames and scoring quality with OpenCV",
                     "🎙️ Transcribing audio with OpenAI Whisper",
                     "🎬 Describing scenes with Gemini Vision",
                     "🔍 Detecting objects and emotions with Gemini",
-                    "🔢 Building BGE vector embeddings",
-                    "🧠 Retrieving brand style via FAISS + Reranker",
-                    "📖 Planning narrative arc with Gemini Pro",
+                    "🔢 Building sentence embeddings and a FAISS index",
+                    "🧠 Retrieving brand style via FAISS + BGE reranker",
+                    "📖 Planning the narrative arc with Gemini 2.5 Pro",
                     "💬 Generating captions and hashtags via Gemini",
-                    "✂️ Editing with FFmpeg — trim and concatenate",
+                    "✂️ Editing with FFmpeg — trim, caption, concatenate",
                     "✅ Reviewing duration and quality metrics",
                     "📤 Exporting final reel and thumbnail",
                     "📊 Calculating final evaluation scores"

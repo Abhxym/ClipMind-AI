@@ -127,7 +127,8 @@ def _fallback_description(frame_path: str, clip_index: int, reason: str) -> Dict
     return {
         "clip_index": clip_index,
         "frame_path": frame_path,
-        "description": f"Video scene from clip {clip_index}. [Gemini unavailable: {reason[:80]}]",
+        "description": "",  # never leak the failure reason into captions
+        "fallback_reason": reason[:120],
         "mood": "neutral",
         "setting": "unknown",
         "visual_quality": 5.0,
@@ -190,6 +191,7 @@ def scene_agent_node(state: VideoState) -> VideoState:
             f"[scene_agent] Clip {clip_idx} ({Path(clip_path).name}): "
             f"\"{desc['description'][:80]}...\" | mood={desc['mood']} | "
             f"source={desc['source']}"
+            + (f" ({desc['fallback_reason']})" if desc.get("fallback_reason") else "")
         )
 
     logs.append(f"[scene_agent] Generated {len(descriptions)} scene descriptions")
