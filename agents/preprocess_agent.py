@@ -1,9 +1,10 @@
 """
-Preprocess Agent — ClipMind AI
+Preprocess Agent — AI Video Director
 ======================================
 Pipeline Step 2: Frame extraction and video decomposition.
   - Samples frames at configurable FPS (default 1fps)
   - Saves JPEG keyframes to temp/<job_id>/frames/
+  - Splits each clip into scene-candidate segments using FFmpeg scene detection
   - Computes per-frame blur (Laplacian variance) and brightness scores
   - Builds a list of frame dicts for downstream agents
 """
@@ -15,12 +16,19 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from memory.state import VideoState
-from tools.ffmpeg import get_duration, get_ffmpeg
 
 FRAME_SAMPLE_FPS = float(os.getenv("FRAME_SAMPLE_FPS", "1"))
-BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "30.0"))
-BRIGHTNESS_MIN = int(os.getenv("BRIGHTNESS_MIN", "20"))
-BRIGHTNESS_MAX = int(os.getenv("BRIGHTNESS_MAX", "240"))
+BLUR_THRESHOLD = float(os.getenv("BLUR_THRESHOLD", "100.0"))
+BRIGHTNESS_MIN = int(os.getenv("BRIGHTNESS_MIN", "40"))
+BRIGHTNESS_MAX = int(os.getenv("BRIGHTNESS_MAX", "220"))
+
+
+def _get_ffmpeg() -> str:
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
 
 
 def _extract_frames(clip_path: str, out_dir: Path, fps: float) -> List[str]:
@@ -28,7 +36,7 @@ def _extract_frames(clip_path: str, out_dir: Path, fps: float) -> List[str]:
     out_dir.mkdir(parents=True, exist_ok=True)
     template = str(out_dir / "frame_%05d.jpg")
     cmd = [
-        get_ffmpeg(), "-y", "-i", clip_path,
+        _get_ffmpeg(), "-y", "-i", clip_path,
         "-vf", f"fps={fps}",
         "-q:v", "3",
         template,
@@ -60,6 +68,19 @@ def _score_frame(frame_path: str) -> Dict[str, float]:
         return {"blur": 0.0, "brightness": 0.0, "quality_ok": False}
 
 
+def _get_duration(clip_path: str) -> float:
+    """Use ffprobe to get clip duration in seconds."""
+    try:
+        import json
+        probe = _get_ffmpeg().replace("ffmpeg", "ffprobe")
+        cmd = [probe, "-v", "quiet", "-print_format", "json", "-show_format", clip_path]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        data = json.loads(r.stdout)
+        return float(data.get("format", {}).get("duration", 0))
+    except Exception:
+        return 0.0
+
+
 def preprocess_agent_node(state: VideoState) -> VideoState:
     """
     LangGraph Node: Preprocessing Agent.
@@ -77,7 +98,7 @@ def preprocess_agent_node(state: VideoState) -> VideoState:
 
     for clip_idx, clip_path in enumerate(clips):
         out_dir = base_temp / f"frames_{clip_idx:03d}"
-        duration = get_duration(clip_path)
+        duration = _get_duration(clip_path)
 
         frame_paths = _extract_frames(clip_path, out_dir, FRAME_SAMPLE_FPS)
         clip_frames = []

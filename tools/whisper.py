@@ -1,29 +1,23 @@
 """
-Whisper Tool - ClipMind AI
+Whisper Tool - AI Video Director
 ==================================
 Wraps OpenAI Whisper for speech-to-text transcription.
 Used by: whisper_agent
 """
 from __future__ import annotations
 
-import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List
 
-from tools.ffmpeg import get_ffmpeg
 
-WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
-_model_cache = None
-
-
-def get_model():
-    """Load (and cache) the Whisper model."""
-    global _model_cache
-    if _model_cache is None:
-        import whisper
-        _model_cache = whisper.load_model(WHISPER_MODEL)
-    return _model_cache
+def get_ffmpeg() -> str:
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
 
 
 def extract_audio_wav(video_path: str, out_path: str, sample_rate: int = 16000) -> bool:
@@ -34,11 +28,8 @@ def extract_audio_wav(video_path: str, out_path: str, sample_rate: int = 16000) 
         "-ar", str(sample_rate), "-ac", "1",
         out_path, "-loglevel", "error",
     ]
-    try:
-        r = subprocess.run(cmd, capture_output=True, timeout=120)
-        return r.returncode == 0 and Path(out_path).exists()
-    except Exception:
-        return False
+    r = subprocess.run(cmd, capture_output=True, timeout=60)
+    return r.returncode == 0 and Path(out_path).exists()
 
 
 def transcribe(wav_path: str, clip_path: str = "") -> List[Dict[str, Any]]:
@@ -47,7 +38,9 @@ def transcribe(wav_path: str, clip_path: str = "") -> List[Dict[str, Any]]:
     Returns list of: {start, end, text, clip_path}
     """
     try:
-        result = get_model().transcribe(wav_path, fp16=False, verbose=False)
+        import whisper
+        model = whisper.load_model("base")
+        result = model.transcribe(wav_path, fp16=False, verbose=False)
         segments = []
         for seg in result.get("segments", []):
             segments.append({

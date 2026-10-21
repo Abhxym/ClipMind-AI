@@ -17,16 +17,16 @@ const AGENT_COLORS: Record<string, string> = {
 }
 
 const AGENT_META: Record<string, { label: string; icon: string; description: string }> = {
-  input_agent:          { label: 'Validation',         icon: '📥', description: 'FFmpeg probe · extension/size/duration checks' },
+  input_agent:          { label: 'Validation',         icon: '📥', description: 'ffprobe validation · extension/size checks' },
   preprocess_agent:     { label: 'Frame Extraction',   icon: '🎞️', description: 'FFmpeg extraction · OpenCV quality scores' },
   whisper_agent:        { label: 'Transcription',      icon: '🎙️', description: 'OpenAI Whisper · speech-to-text' },
-  scene_agent:          { label: 'Scene Understanding', icon: '🎬', description: 'Gemini Vision · scene understanding' },
+  scene_agent:          { label: 'Scene Extraction',   icon: '🎬', description: 'Gemini Vision · scene understanding' },
   metadata_agent:       { label: 'Metadata & Emotion', icon: '🔍', description: 'Gemini/YOLO · object detection · excitement score' },
-  embedding_agent:      { label: 'Vector Build',       icon: '🔢', description: 'Sentence-Transformer embeddings · FAISS index' },
+  embedding_agent:      { label: 'Vector Build',       icon: '🔢', description: 'BGE embeddings · FAISS index' },
   rag_agent:            { label: 'Brand RAG',          icon: '🧠', description: 'FAISS retrieval · BGE Reranker' },
-  planner_agent:        { label: 'Story Planner',      icon: '📖', description: 'Gemini 2.5 Pro narrative arc · clip timing' },
-  caption_agent:        { label: 'Caption Generator',  icon: '💬', description: 'Gemini 2.5 Flash · titles · hashtags' },
-  editing_agent:        { label: 'Video Editing',      icon: '✂️',  description: 'FFmpeg trim · burned-in captions · concat' },
+  planner_agent:        { label: 'Story Planner',      icon: '📖', description: 'Gemini Pro narrative arc · clip timing' },
+  caption_agent:        { label: 'Caption Generator',  icon: '💬', description: 'Gemini Flash · titles · hashtags' },
+  editing_agent:        { label: 'Video Editing',      icon: '✂️',  description: 'FFmpeg trim · subtitles · concat' },
   reviewer_agent:       { label: 'Quality Review',     icon: '✅', description: 'Duration check · edit success rate gating' },
   export_agent:         { label: 'Export',             icon: '📤', description: 'Final file save · thumbnail generation' },
   evaluation_agent:     { label: 'Evaluation',         icon: '📊', description: 'Metrics scoring · duration accuracy' },

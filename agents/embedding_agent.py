@@ -1,9 +1,8 @@
 """
-Embedding Agent — ClipMind AI
+Embedding Agent — AI Video Director
 =====================================
 Pipeline 7 + 8: Generate embeddings and store in FAISS vector DB.
-  - Converts transcript segments + scene descriptions into Sentence-Transformer
-    embeddings (EMBEDDING_MODEL, default all-MiniLM-L6-v2)
+  - Converts transcript segments + scene descriptions into BGE embeddings
   - Stores in a FAISS index (persisted to vector_db/)
   - Tags each vector with metadata: timestamp, clip, type
 """
@@ -15,9 +14,18 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from memory.state import VideoState
-from tools.embeddings import EMBEDDING_MODEL, embed_texts
 
 VECTOR_DB_DIR = Path(os.getenv("VECTOR_DB_DIR", "vector_db"))
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
+
+
+def _get_embedder():
+    """Load sentence-transformer BGE model."""
+    try:
+        from sentence_transformers import SentenceTransformer
+        return SentenceTransformer(EMBEDDING_MODEL)
+    except ImportError:
+        return None
 
 
 def _build_documents(state: VideoState) -> List[Dict[str, Any]]:
@@ -77,23 +85,33 @@ def embedding_agent_node(state: VideoState) -> VideoState:
     index_dir.mkdir(exist_ok=True)
 
     texts = [d["text"] for d in docs]
-    with open(index_dir / "docs.json", "w", encoding="utf-8") as f:
-        json.dump(docs, f, indent=2)
+    model = _get_embedder()
 
-    embeddings = embed_texts(texts)
-    if embeddings is None:
-        logs.append("[embedding_agent] sentence-transformers unavailable — saved raw docs for keyword retrieval")
+    if model is None:
+        logs.append("[embedding_agent] sentence-transformers not installed — skipping FAISS, saving raw docs")
+        with open(index_dir / "docs.json", "w", encoding="utf-8") as f:
+            json.dump(docs, f, indent=2)
         return {**state, "current_agent": "embedding_agent", "errors": errors, "logs": logs}
 
     try:
-        import faiss
+        import faiss, numpy as np
+
+        embeddings = model.encode(texts, normalize_embeddings=True, show_progress_bar=False)
+        embeddings = np.array(embeddings, dtype="float32")
 
         dim = embeddings.shape[1]
         index = faiss.IndexFlatIP(dim)  # Inner Product = cosine on normalised vecs
         index.add(embeddings)
+
         faiss.write_index(index, str(index_dir / "index.faiss"))
-        logs.append(f"[embedding_agent] FAISS index saved: {len(docs)} vectors @ dim={dim} ({EMBEDDING_MODEL})")
+        with open(index_dir / "docs.json", "w", encoding="utf-8") as f:
+            json.dump(docs, f, indent=2)
+
+        logs.append(f"[embedding_agent] FAISS index saved: {len(docs)} vectors @ dim={dim}")
     except ImportError:
+        # FAISS not installed — save raw docs for keyword fallback in RAG agent
+        with open(index_dir / "docs.json", "w", encoding="utf-8") as f:
+            json.dump(docs, f, indent=2)
         logs.append("[embedding_agent] faiss-cpu not installed — saved raw docs for keyword retrieval")
     except Exception as exc:
         errors.append({"agent": "embedding_agent", "type": "FAISSError", "message": str(exc)})

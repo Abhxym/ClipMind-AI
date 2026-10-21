@@ -1,5 +1,5 @@
 """
-BGE Cross-Encoder Reranker — ClipMind AI RAG
+BGE Cross-Encoder Reranker — AI Video Director RAG
 ===================================================
 Takes Top-K retrieved chunks and reranks them using a
 BAAI/bge-reranker-base cross-encoder model.

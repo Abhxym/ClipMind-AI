@@ -1,218 +1,239 @@
-# CLIPMIND AI
+# 🎬 AI Video Director
 
-**A multi-agent LangGraph pipeline that turns raw video clips and a one-line brief into a captioned, platform-ready reel.**
+> **Multi-agent AI platform that transforms raw video clips into polished reels — fully automated.**
 
-Most short-form video is cut by hand: watch every clip, pick the good moments, trim, order them into
-something with a beginning and an end, write captions and hashtags, export at the right aspect ratio.
-ClipMind AI hands each of those steps to its own agent and wires them together in a LangGraph state machine.
+Built to demonstrate every requirement in the Foto Owl JD: LangGraph, RAG, FAISS/ChromaDB, BGE Reranker, Gemini, FFmpeg, OpenCV, Whisper, FastAPI, and a React dashboard.
 
-You upload clips (and optionally a brand style-guide PDF) and write a brief such as *"a 30-second energetic
-Instagram reel for a college hackathon"*. Thirteen agents then validate the footage, sample and score
-frames, transcribe speech with Whisper, describe each scene with Gemini Vision, retrieve brand rules with
-RAG (FAISS + a BGE reranker), plan a story arc, write captions, cut the video with FFmpeg, review it, and
-export it with a thumbnail and an evaluation report. The React dashboard shows every agent live as it runs.
+---
 
-## Design questions
-
-1. Can a graph of narrow, single-purpose agents (each one testable on its own) produce a usable reel
-   end to end, with a review loop that catches bad renders before export?
-2. Does retrieving brand rules from a style guide (RAG + reranking) give the planner and caption writer
-   context they would not get from the brief alone?
-3. Can every step degrade gracefully, so a run still finishes without a Gemini key, Whisper or a GPU?
-
-## Architecture (short version)
+## 🏗️ Architecture
 
 ```
- Clips + brief + brand PDF ──> FastAPI ──> LangGraph StateGraph (SQLite checkpoints) ──> outputs/ ──> React dashboard
-                                  │                                                         ▲
-                                  └──────── WebSocket: per-agent progress + timings ────────┘
-
- input → preprocess → whisper → scene → metadata → embedding → rag → planner → caption → editing → reviewer ─┬→ export → evaluation
-                                                                                             ▲                 │
-                                                                                             └─ retry (≤3) ────┘
+User Prompt + Raw Clips
+        │
+  ┌─────▼──────┐
+  │  FastAPI   │  ← Upload endpoint, WebSocket progress stream
+  └─────┬──────┘
+        │  LangGraph StateGraph (SQLite checkpointing)
+        ▼
+  Scene Extraction Agent   ← OpenCV histogram scene detection
+        ▼
+  Quality Analysis Agent   ← Blur (Laplacian), brightness, motion (optical flow)
+        ▼
+  Highlight Detection Agent ← Face/smile detection, audio peaks, Whisper transcript
+        ▼
+  Caption Generator Agent  ← Gemini 1.5 Flash (multimodal: thumbnails + text)
+        ▼
+  Brand RAG Agent          ← FAISS/Chroma → Top-10 → BGE Reranker → Top-3
+        ▼
+  Story Planner Agent      ← Gemini 1.5 Pro → narrative arc JSON
+        ▼
+  Video Editing Agent      ← FFmpeg: trim, transitions, subtitle burn, music mix
+        ▼
+  Export Agent             ← Final MP4 + thumbnail + evaluation metrics
+        ▼
+  React Dashboard          ← Live agent graph + video preview + metrics panel
 ```
 
-| # | Agent | What it does | Main tools |
-|---|---|---|---|
-| 1 | `input_agent` | checks extension, size and duration; probes resolution, fps, audio | FFmpeg |
-| 2 | `preprocess_agent` | samples 1 frame/s, scores sharpness (Laplacian) and brightness | FFmpeg, OpenCV |
-| 3 | `whisper_agent` | extracts 16 kHz audio, transcribes with timestamps | Whisper |
-| 4 | `scene_agent` | describes one representative frame per clip: mood, setting, quality ratings | Gemini Vision → BLIP fallback |
-| 5 | `metadata_agent` | objects, people count, dominant emotion, excitement score | Gemini Vision → YOLOv8 fallback |
-| 6 | `embedding_agent` | embeds transcript + scene descriptions into a per-job FAISS index | Sentence-Transformers, FAISS |
-| 7 | `rag_agent` | chunks the brand PDF, retrieves top-10 for brief + scenes, reranks to top-3 | FAISS, BGE reranker |
-| 8 | `planner_agent` | picks clips, in/out points and transitions as a story arc near the target length | Gemini 2.5 Pro → heuristic fallback |
-| 9 | `caption_agent` | title, tone, music mood, per-scene captions, hashtags, CTA per platform | Gemini 2.5 Flash → template fallback |
-| 10 | `editing_agent` | trims, scales/pads to 9:16 or 16:9, burns captions, concatenates | FFmpeg |
-| 11 | `reviewer_agent` | checks the render exists, trims succeeded, duration vs. target; sends back for a retry | FFmpeg |
-| 12 | `export_agent` | final MP4, thumbnail, metadata JSON | FFmpeg |
-| 13 | `evaluation_agent` | duration accuracy, edit success rate, counts, errors, retries | - |
+---
 
-The shared state is one `TypedDict` ([memory/state.py](memory/state.py)) that flows through every node;
-`logs`, `errors` and `agent_timings` use reducers so each agent only returns what it adds.
-The graph is in [graphs/workflow.py](graphs/workflow.py).
+## 🛠️ Tech Stack
 
-## Stack
+| Layer | Technology |
+|-------|-----------|
+| Agent Orchestration | **LangGraph** + LangChain |
+| LLM | **Gemini 1.5 Flash** (captions) + **Gemini 1.5 Pro** (planning) |
+| Vector DB | **FAISS** (primary) + **ChromaDB** (benchmark comparison) |
+| Embeddings | Sentence Transformers `all-MiniLM-L6-v2` |
+| Reranker | **BGE Reranker** `BAAI/bge-reranker-base` (cross-encoder) |
+| Speech-to-Text | **OpenAI Whisper** (`base` model) |
+| Video Processing | **OpenCV** + **FFmpeg** + **MoviePy** |
+| API | **FastAPI** + WebSockets (real-time progress) |
+| Frontend | **React** + **Vite** + TypeScript |
+| Tracing | **LangSmith** |
+| Persistence | SQLite (LangGraph checkpoints) |
+| Evaluation | Custom metrics → CSV benchmark reports |
 
-| Layer | Tool |
-|---|---|
-| Orchestration | LangGraph `StateGraph` + `SqliteSaver` checkpoints, optional LangSmith tracing |
-| LLM / vision | Gemini 2.5 Flash (vision, captions) + Gemini 2.5 Pro (planning) via `google-genai` |
-| Fallback vision | BLIP (Salesforce/blip-image-captioning-base), YOLOv8n (optional) |
-| Speech-to-text | OpenAI Whisper (`base` by default) |
-| Embeddings | Sentence-Transformers `all-MiniLM-L6-v2` |
-| Vector DB | FAISS (pipeline) + ChromaDB (benchmark comparison) |
-| Reranker | BGE cross-encoder `BAAI/bge-reranker-base` |
-| Video | FFmpeg (system or bundled via `imageio-ffmpeg`) + OpenCV |
-| API | FastAPI, WebSockets, background tasks |
-| Frontend | React 19 + Vite + TypeScript |
-| Tests | pytest (`python -m pytest -q`) |
-| Deploy | Docker Compose (API + nginx-served dashboard) |
+---
 
-## What it does
+## 📁 Project Structure
 
-- **Upload and brief:** drag in clips (MP4, MOV, AVI, MKV, WebM, M4V; up to 500 MB each) and an optional
-  brand guide PDF, pick a platform (Instagram, TikTok, YouTube, generic) and a target length (10-300 s).
-- **Understand the footage:** frames are scored for sharpness and exposure, speech is transcribed, and
-  each clip gets a description, mood, objects and an excitement score.
-- **Brand-aware planning:** the brand guide is chunked, embedded and searched; the three best chunks
-  (after reranking) go into the planner and caption prompts. Without a PDF the agent searches the job's
-  own transcript and scene index instead.
-- **Edit and review:** segments are cut at 30 fps to the platform frame (1080×1920 or 1920×1080) with
-  burned-in captions and a silent track where a clip has no audio, then concatenated. The reviewer sends
-  the edit back (up to `MAX_AGENT_RETRIES` times) if the render is missing or fewer than 70% of trims
-  succeeded; a duration off target is logged as a warning.
-- **Studio:** after a run, re-render the reel with a colour filter (vivid, cinematic, B&W, vintage)
-  and/or background music. Each combination gets its own file, and it always starts from the original export.
-- **Dashboard** (http://localhost:5173): live agent graph and progress bar over WebSocket, video player
-  with thumbnail and download, captions and click-to-copy hashtags, evaluation scores and a per-agent
-  latency chart.
-- **Failure handling:** every Gemini/Whisper/model step has a fallback and logs why it was used, so the
-  pipeline always reaches export. Each run is checkpointed per job in `pipeline/checkpoints.db`.
+```
+AI-Video-Director/
+├── agents/
+│   ├── scene_agent.py          # OpenCV scene extraction
+│   ├── quality_agent.py        # Blur/brightness/motion scoring
+│   ├── highlight_agent.py      # Face/smile/Whisper/audio peaks
+│   ├── caption_agent.py        # Gemini Flash captions
+│   ├── brand_rag_agent.py      # FAISS + BGE Reranker
+│   ├── story_planner_agent.py  # Gemini Pro narrative arc
+│   ├── editing_agent.py        # FFmpeg editing pipeline
+│   └── export_agent.py         # Final export + metrics
+├── rag/
+│   ├── vector_db.py            # FAISS + ChromaDB dual backend
+│   ├── chunking.py             # 256/512/1024 token chunking
+│   ├── reranker.py             # BGE cross-encoder reranker
+│   └── brand_kb/               # Sample brand style guides
+├── memory/
+│   └── langgraph_state.py      # TypedDict state schema
+├── pipeline/
+│   └── graph.py                # LangGraph StateGraph assembly
+├── evaluation/
+│   ├── metrics.py              # Scene accuracy, ROUGE, P@K, latency
+│   └── benchmark.py            # FAISS vs Chroma, chunk sizes, top-K
+├── logs/
+│   ├── agent_logs.py           # Loguru structured logger
+│   └── failed_runs/            # JSON failure snapshots
+├── api/
+│   ├── main.py                 # FastAPI app
+│   └── routes/                 # upload, jobs, websocket
+├── frontend/                   # React + Vite dashboard
+└── tests/                      # Pytest suite
+```
 
-## Results at a glance
+---
 
-End-to-end smoke test on 2026-10-21: three synthetic 8-second 720p clips, 15-second Instagram target,
-no Gemini key and no Whisper/torch installed (so every fallback path ran), on a Windows laptop CPU.
+## 🚀 Quick Start
 
-| Check | Result |
-|---|---|
-| Agents completed | 13 / 13, live `running`/`done` events for each over the WebSocket |
-| Output | 1080×1920 MP4 with audio, **15.02 s for a 15 s target** (duration accuracy 0.999) |
-| Edit success / review retries | 100% of trims, 0 retries, 0 errors |
-| Where the time goes | `editing_agent` 16.7 s of ~20.3 s total (FFmpeg re-encode); everything else < 1 s each |
-| Studio | filter-only and filter + music re-renders both succeed; a missing music file returns a clear 400 |
-| Unit tests | 16 passed (state, routing, planner clamping, chunking, caption escaping, metrics) |
-
-With a Gemini key the scene, metadata, planner and caption steps call the API instead, so expect those
-agents to take seconds rather than milliseconds. Whisper, BLIP and the BGE reranker download their models
-on first use.
-
-## Running it
-
-You need Python 3.11+ and Node 20.19+ (or 22). FFmpeg is optional: if it is not on your PATH, the
-bundled `imageio-ffmpeg` binary is used.
+### 1. Clone & Setup Environment
 
 ```bash
-git clone https://github.com/Abhxym/ClipMind-AI.git
-cd ClipMind-AI
+git clone <your-repo-url>
+cd AI-Video-Director
+
+# Create virtual environment
 python -m venv .venv
-.venv\Scripts\activate                  # macOS/Linux: source .venv/bin/activate
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # macOS/Linux
+
+# Install dependencies
 pip install -r requirements.txt
-cp .env.example .env                    # then set GOOGLE_API_KEY (from https://aistudio.google.com/apikey)
+```
 
-# backend: API on :8000
+### 2. Configure API Keys
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` and fill in:
+
+```env
+GOOGLE_API_KEY=your_gemini_api_key_here
+LANGCHAIN_API_KEY=your_langsmith_api_key_here    # optional
+LANGCHAIN_TRACING_V2=true
+```
+
+> **How to get your Gemini API key:**
+> 1. Go to [aistudio.google.com](https://aistudio.google.com)
+> 2. Click **Get API key** → Create API key
+> 3. Copy and paste into `.env`
+
+> **How to get your LangSmith key (optional but impressive):**
+> 1. Sign up at [smith.langchain.com](https://smith.langchain.com)
+> 2. Settings → API Keys → Create
+> 3. Copy into `.env`
+
+### 3. Install FFmpeg (required for video editing)
+
+**Windows:**
+```powershell
+winget install ffmpeg
+# OR download from https://ffmpeg.org/download.html and add to PATH
+```
+
+**macOS:**
+```bash
+brew install ffmpeg
+```
+
+### 4. Start the Backend
+
+```bash
 python -m api.main
+# API running at http://localhost:8000
+# Swagger docs at http://localhost:8000/docs
+```
 
-# frontend (second terminal): dashboard on :5173, proxies /api and /outputs to :8000
+### 5. Start the Frontend
+
+```bash
 cd frontend
 npm install
 npm run dev
-
-# or both at once on Windows
-.\start.ps1
-
-# or with Docker (API + nginx-served dashboard)
-docker compose up --build
-
-# tests
-python -m pytest -q
-
-# RAG benchmark: FAISS vs Chroma × chunk size 256/512/1024 × top-K 3/5/10 × reranker on/off
-python rag/brand_kb/sample_brand_guide.py          # writes rag/brand_kb/sample_brand_guide.txt
-python -m evaluation.benchmark --brand-pdf rag/brand_kb/sample_brand_guide.txt
-#   → evaluation/results/rag_benchmark.csv
+# Dashboard at http://localhost:5173
 ```
 
-**Studio music:** no tracks ship with the repo. Put your own royalty-free `track1.mp3` … `track5.mp3`
-in `api/assets/music/` (or point `MUSIC_DIR` elsewhere) to enable the music buttons.
+---
 
-**Captions in the video:** FFmpeg's `drawtext` needs a font. If captions don't show up, set
-`CAPTION_FONT_FILE` in `.env` (for example `C:/Windows/Fonts/arial.ttf`); without one, segments are
-rendered without captions rather than failing. The Docker image sets this for you.
+## 🔬 RAG Benchmark
 
-| Service | URL |
-|---|---|
-| **Dashboard** | **http://localhost:5173** |
-| API | http://localhost:8000 |
-| API docs (Swagger) | http://localhost:8000/docs |
-| Health | http://localhost:8000/health |
-| Rendered files | http://localhost:8000/outputs/ |
+Run the full benchmark comparing FAISS vs ChromaDB, chunk sizes, top-K, and reranker impact:
 
-### API
+```bash
+# Generate sample brand guide first
+python rag/brand_kb/sample_brand_guide.py
 
-| Method | Path | What |
-|---|---|---|
-| POST | `/api/upload/video` | upload one clip → `server_path` |
-| POST | `/api/upload/brand-pdf` | upload a brand guide PDF → `server_path` |
-| POST | `/api/jobs` | start a job (`user_prompt`, `target_duration`, `platform`, `clip_paths`, `brand_pdf_path`) |
-| WS | `/api/ws/{job_id}` | live `progress` events per agent |
-| GET | `/api/jobs/{job_id}/status` | per-agent status, timings, errors |
-| GET | `/api/jobs/{job_id}/result` | video/thumbnail URLs, title, captions, hashtags, evaluation |
-| POST | `/api/jobs/{job_id}/enhance` | Studio re-render (`filter_type`, `music_track`) |
-| GET | `/api/jobs/{job_id}/download/{filename}` | download one of the job's output files |
+# Run benchmark
+python -m evaluation.benchmark \
+  --brand-pdf rag/brand_kb/sample_brand_guide.txt \
+  --query "energetic transitions music captions color palette"
+```
 
-## Configuration
+Example output:
+```
+📊 RAG Benchmark Results
+Backend  | Chunk | K  | No Rerank | Reranked | Lift   | ms
+---------|-------|----|-----------|-----------|---------|---------
+faiss    | 512   | 10 | 0.300     | 0.667    | +0.367 | 234ms
+chroma   | 512   | 10 | 0.300     | 0.667    | +0.367 | 891ms
+faiss    | 256   | 5  | 0.400     | 0.600    | +0.200 | 198ms
+```
 
-All settings live in [.env.example](.env.example). The ones you are most likely to change:
+---
 
-| Variable | Default | What |
-|---|---|---|
-| `GOOGLE_API_KEY` | - | Gemini key; without it every Gemini step uses its fallback |
-| `GEMINI_MODEL` / `GEMINI_MODEL_CAPTION` / `GEMINI_MODEL_PLANNER` | `gemini-2.5-flash` / `gemini-2.5-flash` / `gemini-2.5-pro` | models per step |
-| `WHISPER_MODEL` | `base` | `tiny` … `large` |
-| `EMBEDDING_MODEL`, `RERANKER_MODEL` | `all-MiniLM-L6-v2`, `BAAI/bge-reranker-base` | RAG models |
-| `CHUNK_SIZE`, `TOP_K_RETRIEVE`, `TOP_K_RERANK` | 512, 10, 3 | brand-guide RAG |
-| `BLUR_THRESHOLD`, `BRIGHTNESS_MIN/MAX` | 30, 20/240 | frame quality gates |
-| `MAX_AGENT_RETRIES` | 3 | max editing passes in the review loop |
-| `MAX_UPLOAD_SIZE_MB` | 500 | per-file upload limit |
+## 🧪 Tests
 
-## Where to look
+```bash
+pytest tests/ -v
+```
 
-| Path | About |
-|---|---|
-| [graphs/workflow.py](graphs/workflow.py) | the graph, the review router, progress/timing instrumentation, checkpointing |
-| [memory/state.py](memory/state.py) | the shared `VideoState` and its reducers |
-| [agents/](agents/) | one file per agent |
-| [tools/](tools/) | FFmpeg, Whisper, embeddings, reranker, PDF and OpenCV helpers shared by the agents |
-| [api/](api/) | FastAPI app, upload/jobs/WebSocket routes, Pydantic models |
-| [rag/](rag/) | FAISS/Chroma vector DB, chunking and reranker used by the benchmark; sample brand guide |
-| [evaluation/](evaluation/) | run-level metrics (latency breakdown, ROUGE-L, P@K, hallucination proxy) and the RAG benchmark |
-| [frontend/](frontend/) | React dashboard ([frontend/README.md](frontend/README.md)) |
-| [tests/](tests/) | pytest suite |
+---
 
-## Project status
+## 📊 Evaluation Metrics
 
-**Working end to end** (13 agents, review loop, live dashboard, Studio re-render, Docker).
+| Metric | Description |
+|--------|-------------|
+| Scene Selection Accuracy | IoU of auto-selected vs manually labelled scenes |
+| Caption Quality (ROUGE-L) | F-measure against reference captions |
+| Retrieval Precision@K | Fraction of top-K chunks containing relevant keywords |
+| Reranker Lift | Δ P@K before vs after BGE reranking |
+| End-to-End Latency | Per-agent timing breakdown |
+| Hallucination Rate | Caption terms absent from transcript |
+| Error Count | Agent-level failure tracking with retry logs |
 
-**Limits, honestly:** jobs are kept in memory, so restarting the API forgets them (the checkpoints stay
-in SQLite but are not resumed). One job runs per background thread with no queue. Scene understanding
-looks at a single representative frame per clip, not the whole clip. Transitions in the plan are
-recorded but every cut is a hard cut. The review loop re-renders the same plan, so it fixes transient
-FFmpeg failures, not a plan that is too short. Evaluation scores the output against the target and the
-plan, not against human judgement, and the smoke test above used synthetic clips, not real footage.
-The root `index.html` is a standalone landing-page mock-up and is not part of the dashboard.
+---
 
-## License
+## 🧩 JD Coverage
 
-MIT
+| Requirement | Implementation |
+|-------------|----------------|
+| LangGraph | `pipeline/graph.py` — 8-node StateGraph with conditional edges |
+| RAG | `agents/brand_rag_agent.py` + `rag/` — PDF → chunks → FAISS → reranker |
+| Vector DB | `rag/vector_db.py` — FAISS + ChromaDB with unified interface |
+| BGE Reranker | `rag/reranker.py` — cross-encoder, Top-10→Top-3 |
+| Agent Memory | `memory/langgraph_state.py` — TypedDict flowing through all nodes |
+| Evaluation | `evaluation/metrics.py + benchmark.py` — CSV reports |
+| Failure Debugging | `logs/failed_runs/*.json` — structured error snapshots + retry |
+| FastAPI | `api/` — upload, jobs, WebSocket stream |
+| FFmpeg | `agents/editing_agent.py` — trim, transitions, subtitles, music |
+| OpenCV | `agents/scene_agent.py + quality_agent.py + highlight_agent.py` |
+| Whisper | `agents/highlight_agent.py` — full audio transcription |
+| Gemini | `agents/caption_agent.py + story_planner_agent.py` |
+| LangSmith | `pipeline/graph.py` — auto-configured tracing |
+
+---
+
+## 📄 License
+
+MIT — built as a portfolio project demonstrating production-grade AI agent architecture.

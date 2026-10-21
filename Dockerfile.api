@@ -1,11 +1,13 @@
 FROM python:3.11-slim
 
-# FFmpeg + the shared libraries OpenCV needs
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
     ffmpeg \
-    libgl1 \
+    libgl1-mesa-glx \
     libglib2.0-0 \
-    fonts-dejavu-core \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -15,10 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create runtime dirs
-RUN mkdir -p uploads outputs temp logs/failed_runs pipeline vector_db api/assets/music
-
-ENV API_RELOAD=false \
-    CAPTION_FONT_FILE=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
+RUN mkdir -p uploads outputs temp logs/failed_runs pipeline rag/faiss_index rag/chroma_db
 
 EXPOSE 8000
 CMD ["python", "-m", "api.main"]

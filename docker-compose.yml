@@ -1,3 +1,5 @@
+version: '3.9'
+
 services:
   api:
     build:
@@ -10,16 +12,14 @@ services:
       - ./outputs:/app/outputs
       - ./temp:/app/temp
       - ./logs:/app/logs
-      - ./vector_db:/app/vector_db
+      - ./rag/faiss_index:/app/rag/faiss_index
+      - ./rag/chroma_db:/app/rag/chroma_db
       - ./pipeline:/app/pipeline
-      - ./api/assets/music:/app/api/assets/music
     env_file:
       - .env
     environment:
       - API_HOST=0.0.0.0
       - API_PORT=8000
-      - API_RELOAD=false
-      - CORS_ORIGINS=http://localhost:5173
 
   frontend:
     build:
@@ -29,3 +29,7 @@ services:
       - "5173:80"
     depends_on:
       - api
+
+volumes:
+  uploads:
+  outputs:

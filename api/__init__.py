@@ -1,3 +1,3 @@
 """
-ClipMind AI — API Package
+AI Video Director — API Package
 """

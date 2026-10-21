@@ -1,9 +1,9 @@
 """
-Planner Agent — ClipMind AI
+Planner Agent — AI Video Director
 =====================================
-Pipeline Step 8: Story Planning using Gemini (GEMINI_MODEL_PLANNER).
+Pipeline Step 8: Story Planning using Gemini Pro.
   - Takes scene descriptions, transcript, object metadata, and brand docs
-  - Uses Gemini 2.5 Pro (configurable) to compose a structured story arc
+  - Uses Gemini 1.5 Pro to compose a structured story arc
   - Selects which clips to use, in what order, for what duration
   - Outputs a story_plan list: [{clip_index, start, end, reason, duration, caption_hint}]
   - Robust fallback if Gemini is unavailable
@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from memory.state import VideoState
 
@@ -97,10 +97,8 @@ Rules:
     return prompt
 
 
-def _plan_with_gemini(state: VideoState) -> Tuple[List[Dict[str, Any]], str]:
-    """Call Gemini to generate the story plan. Returns (plan, failure_reason)."""
-    if not GOOGLE_API_KEY:
-        return [], "GOOGLE_API_KEY not set"
+def _plan_with_gemini(state: VideoState) -> List[Dict[str, Any]]:
+    """Call Gemini Pro to generate the story plan."""
     try:
         from google import genai
         client = genai.Client(api_key=GOOGLE_API_KEY)
@@ -119,14 +117,14 @@ def _plan_with_gemini(state: VideoState) -> Tuple[List[Dict[str, Any]], str]:
 
         plan = json.loads(text)
         if isinstance(plan, list):
-            return plan, ""
-        return [], "response was not a JSON list"
+            return plan
+        return []
     except ImportError:
-        return [], "google-genai not installed"
+        return []
     except json.JSONDecodeError:
-        return [], "response was not valid JSON"
-    except Exception as exc:
-        return [], f"{type(exc).__name__}: {str(exc)[:120]}"
+        return []
+    except Exception:
+        return []
 
 
 def _fallback_plan(state: VideoState) -> List[Dict[str, Any]]:
@@ -207,18 +205,18 @@ def planner_agent_node(state: VideoState) -> VideoState:
     Reads:  scene_descriptions, objects, transcript, retrieved_brand_docs, user_prompt
     Writes: story_plan
     """
-    logs: List[str] = ["[planner_agent] Building story plan"]
+    logs: List[str] = ["[planner_agent] Building story plan with Gemini Pro"]
     errors: List[Dict[str, Any]] = []
 
     target_duration = state.get("target_duration", 30)
 
     # Try Gemini first
-    plan, reason = _plan_with_gemini(state)
+    plan = _plan_with_gemini(state)
 
     if plan:
-        logs.append(f"[planner_agent] Gemini ({GEMINI_MODEL_PLANNER}) generated {len(plan)} scene entries")
+        logs.append(f"[planner_agent] Gemini generated {len(plan)} scene entries")
     else:
-        logs.append(f"[planner_agent] Gemini unavailable ({reason}) — using fallback planner")
+        logs.append("[planner_agent] Gemini unavailable — using fallback planner")
         plan = _fallback_plan(state)
 
     # Validate and sanitize the plan
@@ -226,30 +224,19 @@ def planner_agent_node(state: VideoState) -> VideoState:
     objects = state.get("objects", [])
     validated_plan = []
 
-    clip_durations = {o.get("clip_index"): float(o.get("end", 0) or 0) for o in objects}
-
     for entry in plan:
-        if not isinstance(entry, dict) or not clips:
-            continue
-        try:
-            clip_idx = int(entry.get("clip_index", 0))
-            start = max(0.0, float(entry.get("start", 0.0)))
-            end = float(entry.get("end", start + 5.0))
-        except (TypeError, ValueError):
-            continue
+        clip_idx = entry.get("clip_index", 0)
 
         # Clamp to available clips
-        if not 0 <= clip_idx < len(clips):
-            clip_idx = clip_idx % len(clips)
-        entry["clip_index"] = clip_idx
+        if clip_idx >= len(clips):
+            clip_idx = clip_idx % max(len(clips), 1)
+            entry["clip_index"] = clip_idx
 
-        # Keep the segment inside the clip and ensure start < end
-        clip_len = clip_durations.get(clip_idx, 0.0)
-        if clip_len > 0:
-            start = min(start, max(0.0, clip_len - 1.0))
-            end = min(end, clip_len)
+        # Ensure start < end
+        start = float(entry.get("start", 0.0))
+        end = float(entry.get("end", start + 5.0))
         if end <= start:
-            end = start + (min(5.0, clip_len - start) if clip_len > start else 5.0)
+            end = start + 5.0
         entry["start"] = round(start, 3)
         entry["end"] = round(end, 3)
         entry["duration"] = round(end - start, 3)
