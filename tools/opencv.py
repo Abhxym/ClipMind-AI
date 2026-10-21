@@ -1,5 +1,5 @@
 """
-OpenCV Tool — AI Video Director
+OpenCV Tool — ClipMind AI
 ================================
 Utility functions for frame-level computer vision operations.
 Used by: preprocess_agent, scene_agent, metadata_agent

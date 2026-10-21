@@ -1,4 +1,4 @@
-// API client for AI Video Director backend
+// API client for ClipMind AI backend
 
 const BASE = '/api'
 
@@ -55,9 +55,11 @@ export async function getJobStatus(jobId: string) {
 }
 
 export function createWSConnection(jobId: string, onMessage: (msg: unknown) => void) {
-  const wsUrl = `ws://localhost:8000/api/ws/${jobId}`
+  // Same origin as the page: Vite (dev) and nginx (Docker) proxy /api/ws to the backend
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  const wsUrl = `${proto}://${window.location.host}/api/ws/${jobId}`
   const ws = new WebSocket(wsUrl)
-  ws.onmessage = (e) => { try { onMessage(JSON.parse(e.data)) } catch (_) {} }
+  ws.onmessage = (e) => { try { onMessage(JSON.parse(e.data)) } catch { /* ignore non-JSON frames */ } }
   ws.onerror = () => console.warn('WS error')
   return ws
 }

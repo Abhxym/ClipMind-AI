@@ -1,5 +1,5 @@
 """
-Editing Agent — AI Video Director
+Editing Agent — ClipMind AI
 =====================================
 Pipeline Step 10: Video Editing — Trim, Caption Burn, Concatenate.
   - Reads the story_plan and captions from state
@@ -10,7 +10,6 @@ Pipeline Step 10: Video Editing — Trim, Caption Burn, Concatenate.
 """
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 from typing import Any, Dict, List
@@ -99,7 +98,6 @@ def editing_agent_node(state: VideoState) -> VideoState:
         t_start = time.time()
 
         # Detect audio presence — check actual file, not just metadata
-        import tools.ffmpeg as ffmpeg_tool
         src_has_audio = ffmpeg_tool.has_audio(src_clip)
 
         success = ffmpeg_tool.trim(

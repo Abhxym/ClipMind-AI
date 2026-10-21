@@ -1,62 +1,67 @@
+"""
+Evaluation Agent — ClipMind AI
+================================
+Pipeline Step 13: Run-level evaluation.
+  - Duration accuracy of the final video vs. the target
+  - Edit success rate (successful trims / planned segments)
+  - Counts: scenes, captions, transcript characters, errors, review retries
+  - Saves the scores to outputs/<job_id>_eval.json
+"""
 from __future__ import annotations
-import json, os, subprocess
-from pathlib import Path
-from typing import Any, Dict
-from memory.state import VideoState
 
-def _duration(path: str) -> float:
-    try:
-        import imageio_ffmpeg
-        probe = imageio_ffmpeg.get_ffmpeg_exe().replace("ffmpeg","ffprobe")
-        r = subprocess.run([probe,"-v","quiet","-print_format","json","-show_format",path], capture_output=True, text=True, timeout=10)
-        return float(json.loads(r.stdout).get("format",{}).get("duration",0))
-    except Exception:
-        return 0.0
+import json
+import os
+from pathlib import Path
+from typing import Any, Dict, List
+
+from memory.state import VideoState
+from tools.ffmpeg import get_duration
+
+OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", "outputs"))
+
 
 def evaluation_agent_node(state: VideoState) -> VideoState:
+    """
+    LangGraph Node: Evaluation Agent.
+    Reads:  final_video, story_plan, captions, transcript, editing_commands, errors, retry_count
+    Writes: evaluation_score
+    """
     job_id = state.get("job_id", "unknown")
-    logs = ["[evaluation_agent] Running evaluation"]
-    errors = []
+    logs: List[str] = ["[evaluation_agent] Running evaluation"]
+
     final_video = state.get("final_video")
     target = state.get("target_duration", 30)
-    story_plan = state.get("story_plan", [])
-    transcript = state.get("transcript", [])
-    captions = state.get("captions", [])
     editing_cmds = state.get("editing_commands", [])
-    all_errors = state.get("errors", [])
     retry_count = state.get("retry_count", {})
 
-    actual_dur = _duration(final_video) if final_video and Path(final_video).exists() else 0.0
+    actual_dur = get_duration(final_video) if final_video and Path(final_video).exists() else 0.0
     dur_score = max(0.0, 1.0 - abs(actual_dur - target) / max(target, 1))
-    scene_count = len(story_plan)
-    caption_count = len(captions)
-    transcript_len = sum(len(s.get("text","")) for s in transcript)
-    error_count = len(all_errors)
-    total_retries = sum(retry_count.values())
-    trim_ok = sum(1 for c in editing_cmds if c.get("step") == "trim" and c.get("success"))
-    trim_total = sum(1 for c in editing_cmds if c.get("step") == "trim")
-    edit_success_rate = trim_ok / max(trim_total, 1)
+    trim_cmds = [c for c in editing_cmds if c.get("step") == "trim"]
+    trim_ok = sum(1 for c in trim_cmds if c.get("success"))
+    edit_success_rate = trim_ok / max(len(trim_cmds), 1)
 
-    scores = {
+    scores: Dict[str, Any] = {
         "duration_accuracy": round(dur_score, 3),
-        "scene_count": scene_count,
-        "caption_count": caption_count,
-        "transcript_chars": transcript_len,
         "edit_success_rate": round(edit_success_rate, 3),
-        "error_count": error_count,
-        "review_retries": total_retries,
+        "overall_score": round((dur_score + edit_success_rate) / 2, 3),
         "actual_duration_s": round(actual_dur, 2),
         "target_duration_s": target,
-        "overall_score": round((dur_score + edit_success_rate) / 2, 3),
+        "scene_count": len(state.get("story_plan", [])),
+        "caption_count": len(state.get("captions", [])),
+        "transcript_chars": sum(len(s.get("text", "")) for s in state.get("transcript", [])),
+        "brand_docs_used": len(state.get("retrieved_brand_docs", [])),
+        "error_count": len(state.get("errors", [])),
+        # editing_agent runs once normally; anything above that is a review retry
+        "review_retries": max(0, retry_count.get("editing_agent", 0) - 1),
     }
 
-    meta_path = Path("outputs") / f"{job_id}_eval.json"
-    meta_path.parent.mkdir(exist_ok=True)
-    with open(meta_path, "w") as f:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    eval_path = OUTPUT_DIR / f"{job_id}_eval.json"
+    with open(eval_path, "w", encoding="utf-8") as f:
         json.dump(scores, f, indent=2)
 
     for k, v in scores.items():
         logs.append(f"[evaluation_agent] {k}: {v}")
-    logs.append(f"[evaluation_agent] Scores saved to {meta_path}")
+    logs.append(f"[evaluation_agent] Scores saved to {eval_path}")
 
     return {**state, "evaluation_score": scores, "current_agent": "evaluation_agent", "errors": [], "logs": logs}

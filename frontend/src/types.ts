@@ -1,4 +1,4 @@
-// Shared types for the AI Video Director frontend
+// Shared types for the ClipMind AI frontend
 
 export type Platform = 'instagram' | 'tiktok' | 'youtube' | 'generic'
 export type JobStatus = 'pending' | 'running' | 'done' | 'failed'
@@ -36,13 +36,17 @@ export interface WSMessage {
 export interface JobResult {
   job_id: string
   status: JobStatus
+  error?: string
   video_title?: string
   final_video_url?: string
   final_thumbnail_url?: string
   captions: string[]
   hashtags: string[]
   tone?: string
+  music_mood?: string
+  cta?: string
   planned_duration?: number
   evaluation?: Record<string, unknown>
   agent_timings: Record<string, number>
+  metadata_url?: string
 }
