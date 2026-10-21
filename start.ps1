@@ -1,7 +1,7 @@
-# ClipMind AI - Quick Start Script (Windows PowerShell)
+# AI Video Director - Quick Start Script (Windows PowerShell)
 # Run this from the project root: .\start.ps1
 
-Write-Host "`nClipMind AI - Starting..." -ForegroundColor Cyan
+Write-Host "`nAI Video Director - Starting..." -ForegroundColor Cyan
 
 # Activate venv
 if (Test-Path ".venv\Scripts\Activate.ps1") {
@@ -35,15 +35,10 @@ $backend = Start-Process python -ArgumentList "-m", "api.main" -PassThru -Window
 
 # Start React frontend
 Write-Host "Starting React dashboard on http://localhost:5173..." -ForegroundColor Cyan
-if (-not (Test-Path "frontend
-ode_modules")) {
-    Write-Host "Installing frontend dependencies..." -ForegroundColor Cyan
-    Push-Location frontend; npm install; Pop-Location
-}
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd frontend; npm run dev" -WindowStyle Normal
 
 Write-Host "`n------------------------------------------------" -ForegroundColor Green
-Write-Host "  ClipMind AI is running!" -ForegroundColor Green
+Write-Host "  AI Video Director is running!" -ForegroundColor Green
 Write-Host "  Dashboard:  http://localhost:5173" -ForegroundColor White
 Write-Host "  API Docs:   http://localhost:8000/docs" -ForegroundColor White
 Write-Host "  LangSmith:  https://smith.langchain.com" -ForegroundColor White

@@ -1,20 +1,12 @@
 """
 VideoState Schema
 =================
-Central state object for the 13-agent ClipMind AI LangGraph workflow.
+Central state object for the 14-agent AI Video Director workflow.
 """
 
 import operator
 from typing import Annotated, Any, Dict, List, Optional
 from typing_extensions import TypedDict
-
-
-def merge_timings(left: Dict[str, float], right: Dict[str, float]) -> Dict[str, float]:
-    """Reducer for agent_timings: adds up time when a node runs more than once (review loop)."""
-    merged = dict(left or {})
-    for agent, ms in (right or {}).items():
-        merged[agent] = round(merged.get(agent, 0.0) + ms, 1)
-    return merged
 
 
 class VideoState(TypedDict):
@@ -38,10 +30,10 @@ class VideoState(TypedDict):
     transcript: List[Dict[str, Any]]            # Time-stamped transcript
     
     # ── Scene Understanding Agent ──
-    scene_descriptions: List[Dict[str, Any]]    # Gemini Vision (BLIP fallback)
+    scene_descriptions: List[Dict[str, Any]]    # Florence-2 / BLIP descriptions
     
     # ── Object Detection & Emotion Agent ──
-    objects: List[Dict[str, Any]]               # Gemini / YOLO objects, emotion, excitement
+    objects: List[Dict[str, Any]]               # YOLO detected objects & Emotion scores
     
     # ── Embedding & RAG Agents ──
     retrieved_brand_docs: List[Dict[str, Any]]  # Docs from vector DB (RAG)
@@ -59,23 +51,19 @@ class VideoState(TypedDict):
     final_video: Optional[str]                  # Path to exported MP4
     
     # ── Evaluation Agent ──
-    evaluation_score: Dict[str, Any]            # Duration accuracy, edit success, etc.
+    evaluation_score: Dict[str, float]          # Quality/Ragas scores
     
     # ── Orchestration & Observability ──
     logs: Annotated[List[str], operator.add]
     current_agent: str
     errors: Annotated[List[Dict[str, Any]], operator.add]
     retry_count: Dict[str, int]                 # Track retries for Review->Edit loops
-    review_passed: bool                         # Set by reviewer_agent, read by the router
-    agent_timings: Annotated[Dict[str, float], merge_timings]  # ms per agent
 
     # ── Internal Agent State ──
     _clip_metadata: List[Dict[str, Any]]
     _video_title: Optional[str]
     _hashtags: List[str]
     _overall_tone: Optional[str]
-    _music_mood: Optional[str]
-    _cta: Optional[str]
     _edited_video_path: Optional[str]
 
 
@@ -108,13 +96,9 @@ def create_initial_state(
         current_agent="",
         errors=[],
         retry_count={},
-        review_passed=False,
-        agent_timings={},
         _clip_metadata=[],
         _video_title=None,
         _hashtags=[],
         _overall_tone=None,
-        _music_mood=None,
-        _cta=None,
         _edited_video_path=None
     )

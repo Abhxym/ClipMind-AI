@@ -1,3 +1,3 @@
 """
-ClipMind AI — Pipeline Package
+AI Video Director — Pipeline Package
 """

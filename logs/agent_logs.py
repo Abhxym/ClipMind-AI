@@ -1,5 +1,5 @@
 """
-Structured Agent Logger — ClipMind AI
+Structured Agent Logger — AI Video Director
 ============================================
 Each agent calls these helpers to emit consistent, parseable log events.
 Failed runs are serialised to logs/failed_runs/{job_id}_{agent}.json
@@ -29,7 +29,7 @@ def setup_logger(log_level: str = "DEBUG") -> None:
     """Configure loguru to write both to stderr and a rotating file."""
     logger.remove()
     logger.add(
-        "logs/clipmind_{time:YYYY-MM-DD}.log",
+        "logs/ai_director_{time:YYYY-MM-DD}.log",
         rotation="1 day",
         retention="7 days",
         compression="gz",

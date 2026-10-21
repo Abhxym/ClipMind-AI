@@ -1,0 +1,74 @@
+[
+  {
+    "text": "a person cutting a cabbage on a cutting board. Objects:",
+    "type": "scene",
+    "clip_path": "C:\\Users\\Admin\\OneDrive\\Desktop\\AI Director Project\\uploads\\706cc3dc28c4.mp4",
+    "global_index": 0,
+    "start": 0.0,
+    "end": 0.0,
+    "excitement_score": 5.0
+  },
+  {
+    "text": "a person cutting a piece of food on a cutting board. Objects:",
+    "type": "scene",
+    "clip_path": "C:\\Users\\Admin\\OneDrive\\Desktop\\AI Director Project\\uploads\\28f67ff1a499.mp4",
+    "global_index": 1,
+    "start": 0.0,
+    "end": 0.0,
+    "excitement_score": 5.0
+  },
+  {
+    "text": "a person is putting a piece of bread into a pan. Objects:",
+    "type": "scene",
+    "clip_path": "C:\\Users\\Admin\\OneDrive\\Desktop\\AI Director Project\\uploads\\6684c757b9c1.mp4",
+    "global_index": 2,
+    "start": 0.0,
+    "end": 0.0,
+    "excitement_score": 5.0
+  },
+  {
+    "text": "a person cutting up a piece of carrot. Objects:",
+    "type": "scene",
+    "clip_path": "C:\\Users\\Admin\\OneDrive\\Desktop\\AI Director Project\\uploads\\9f71a5b78492.mp4",
+    "global_index": 3,
+    "start": 0.0,
+    "end": 0.0,
+    "excitement_score": 5.0
+  },
+  {
+    "text": "a person cutting broccoles on a cutting board. Objects:",
+    "type": "scene",
+    "clip_path": "C:\\Users\\Admin\\OneDrive\\Desktop\\AI Director Project\\uploads\\7f4852ed87e3.mp4",
+    "global_index": 4,
+    "start": 0.0,
+    "end": 0.0,
+    "excitement_score": 5.0
+  },
+  {
+    "text": "a man is cooking pasta in a pot. Objects:",
+    "type": "scene",
+    "clip_path": "C:\\Users\\Admin\\OneDrive\\Desktop\\AI Director Project\\uploads\\256eea0dbca6.mp4",
+    "global_index": 5,
+    "start": 0.0,
+    "end": 0.0,
+    "excitement_score": 5.0
+  },
+  {
+    "text": "a woman in an apron is making dough. Objects:",
+    "type": "scene",
+    "clip_path": "C:\\Users\\Admin\\OneDrive\\Desktop\\AI Director Project\\uploads\\b89209fa92f6.mp4",
+    "global_index": 6,
+    "start": 0.0,
+    "end": 0.0,
+    "excitement_score": 5.0
+  },
+  {
+    "text": "a person is pouring a salad into a bowl. Objects:",
+    "type": "scene",
+    "clip_path": "C:\\Users\\Admin\\OneDrive\\Desktop\\AI Director Project\\uploads\\fce27736ac04.mp4",
+    "global_index": 7,
+    "start": 0.0,
+    "end": 0.0,
+    "excitement_score": 5.0
+  }
+]

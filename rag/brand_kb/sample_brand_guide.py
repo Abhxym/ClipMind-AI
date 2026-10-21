@@ -7,7 +7,7 @@ style decisions in the Brand RAG Agent.
 """
 
 BRAND_GUIDE_TEXT = """
-ClipMind AI — Sample Brand Style Guide
+AI Video Director — Sample Brand Style Guide
 =============================================
 
 1. BRAND IDENTITY

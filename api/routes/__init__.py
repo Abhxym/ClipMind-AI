@@ -1,3 +1,3 @@
 """
-ClipMind AI — API Routes Package
+AI Video Director — API Routes Package
 """

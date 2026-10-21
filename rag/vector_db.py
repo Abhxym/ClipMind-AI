@@ -1,5 +1,5 @@
 """
-Vector Database — ClipMind AI RAG
+Vector Database — AI Video Director RAG
 ========================================
 Dual-backend: FAISS (fast local ANN) and ChromaDB (persistent, filterable).
 Switch with VECTOR_DB_BACKEND env var.
@@ -7,7 +7,7 @@ Switch with VECTOR_DB_BACKEND env var.
 Both backends expose the same interface:
   db.index_document(path, doc_id)
   db.search(query, top_k) → List[{"id", "text", "score"}]
-  db.index_texts(texts, doc_id)
+  db.search_by_text(texts, query, top_k)
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ def _embed(texts: List[str]) -> np.ndarray:
 class FAISSVectorDB:
     """
     In-memory FAISS index with pickle persistence.
-    Stores: index.faiss + meta.pkl (list of {id, text, doc_id}).
+    Stores: index + list of (id, text) pairs.
     """
 
     def __init__(self, index_path: Path = FAISS_INDEX_PATH):
@@ -68,7 +68,7 @@ class FAISSVectorDB:
             with open(self._meta_file, "rb") as f:
                 self._meta: List[dict] = pickle.load(f)
         else:
-            dim = _get_embed_model().get_sentence_embedding_dimension()
+            dim = 384  # all-MiniLM-L6-v2 output dim
             self._index = faiss.IndexFlatIP(dim)   # Inner product = cosine (normalised)
             self._meta: List[dict] = []
 
@@ -169,13 +169,12 @@ class VectorDatabase:
         results = db.search("color palette transitions", top_k=10)
     """
 
-    def __init__(self, backend: Optional[str] = None, path: Optional[str] = None):
-        """path overrides FAISS_INDEX_PATH / CHROMA_DB_PATH (e.g. a temp dir for benchmarks)."""
+    def __init__(self, backend: Optional[str] = None):
         backend = backend or BACKEND
         if backend == "chroma":
-            self._db = ChromaVectorDB(db_path=path) if path else ChromaVectorDB()
+            self._db = ChromaVectorDB()
         else:
-            self._db = FAISSVectorDB(index_path=Path(path)) if path else FAISSVectorDB()
+            self._db = FAISSVectorDB()
         self._backend = backend
         self._indexed_docs: set = set()
 

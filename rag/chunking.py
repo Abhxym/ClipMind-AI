@@ -1,5 +1,5 @@
 """
-Text Chunking — ClipMind AI RAG
+Text Chunking — AI Video Director RAG
 =======================================
 Handles PDF → text → chunks with configurable strategy.
 Supports chunk sizes 256 / 512 / 1024 for benchmark comparison.

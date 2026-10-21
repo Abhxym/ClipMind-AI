@@ -1,5 +1,5 @@
 """
-PDF Parser Tool — ClipMind AI
+PDF Parser Tool — AI Video Director
 =====================================
 Utility for extracting text from PDF brand guidelines and semantic chunking.
 Used by: rag_agent
@@ -13,17 +13,17 @@ from typing import Any, Dict, List
 def parse_pdf(pdf_path: str) -> str:
     """Extract full text from a PDF file."""
     try:
-        from pypdf import PdfReader
+        import PyPDF2
         text = ""
         with open(pdf_path, "rb") as f:
-            reader = PdfReader(f)
+            reader = PyPDF2.PdfReader(f)
             for page in reader.pages:
                 extracted = page.extract_text()
                 if extracted:
                     text += extracted + "\n\n"
         return text.strip()
     except ImportError:
-        return "[Error: pypdf not installed. Cannot parse PDF.]"
+        return "[Error: PyPDF2 not installed. Cannot parse PDF.]"
     except Exception as e:
         return f"[Error parsing PDF: {e}]"
 
@@ -60,9 +60,9 @@ def chunk_text(text: str, chunk_size: int = 512, chunk_overlap: int = 64) -> Lis
             "end_idx": end
         })
         
-        if end == len(words):
-            break
-        start = max(end - chunk_overlap, start + 1)  # always move forward
+        start = end - chunk_overlap
+        if start < 0 or end == len(words):
+            start = end
 
     return chunks
 

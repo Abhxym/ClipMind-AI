@@ -1,5 +1,5 @@
 """
-Pydantic Models — ClipMind AI API
+Pydantic Models — AI Video Director API
 =========================================
 Request and response schemas for all FastAPI routes.
 """
@@ -71,21 +71,17 @@ class JobStatusResponse(BaseModel):
     progress_pct: float = 0.0
     error_count: int = 0
     errors: List[Dict[str, Any]] = []
-    error: Optional[str] = None         # set when status == failed
 
 
 class JobResultResponse(BaseModel):
     job_id: str
     status: JobStatus
-    error: Optional[str] = None
     video_title: Optional[str] = None
     final_video_url: Optional[str] = None
     final_thumbnail_url: Optional[str] = None
     captions: List[str] = []
     hashtags: List[str] = []
     tone: Optional[str] = None
-    music_mood: Optional[str] = None
-    cta: Optional[str] = None
     planned_duration: Optional[float] = None
     evaluation: Optional[Dict[str, Any]] = None
     agent_timings: Dict[str, float] = {}

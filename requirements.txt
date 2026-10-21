@@ -1,53 +1,69 @@
 # ============================================================
-# ClipMind AI — Python Dependencies (Python 3.11+)
+# AI Video Director — Python Dependencies
 # ============================================================
 
-# ── Agent orchestration ─────────────────────────────────────
-langgraph>=0.2.0
-langgraph-checkpoint-sqlite>=2.0.0   # SqliteSaver used by graphs/workflow.py
-langsmith>=0.1.0                     # optional tracing (LANGCHAIN_TRACING_V2)
+# ── LangChain / LangGraph ───────────────────────────────────
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-google-genai>=1.0.0
+langchain-community>=0.2.0
+langgraph>=0.1.0
+langsmith>=0.1.0
 
-# ── Gemini ──────────────────────────────────────────────────
-google-genai>=1.0.0
+# ── Google Generative AI ────────────────────────────────────
+google-genai>=0.1.0
 
-# ── Vector databases ────────────────────────────────────────
+# ── Vector Databases ────────────────────────────────────────
 faiss-cpu>=1.7.4
-chromadb>=0.5.0                      # RAG benchmark comparison backend
+chromadb>=0.5.0
 
-# ── Embeddings, reranker, vision fallback ───────────────────
+# ── Embeddings & Reranker ───────────────────────────────────
 sentence-transformers>=3.0.0
 torch>=2.0.0
-transformers>=4.40.0                 # BLIP captioning fallback in scene_agent
+transformers>=4.40.0
 
-# ── Speech-to-text ──────────────────────────────────────────
+# ── Speech-to-Text ──────────────────────────────────────────
 openai-whisper>=20231117
+ffmpeg-python>=0.2.0
 
-# ── Video & image processing ────────────────────────────────
-imageio-ffmpeg>=0.5.0                # bundled FFmpeg binary (used if ffmpeg is not on PATH)
+# ── Video & Image Processing ────────────────────────────────
 opencv-python>=4.9.0
+moviepy>=1.0.3
 Pillow>=10.0.0
 numpy>=1.24.0
+scikit-image>=0.22.0
 
-# ── FastAPI backend ─────────────────────────────────────────
+# ── Audio Processing ────────────────────────────────────────
+librosa>=0.10.0
+soundfile>=0.12.0
+
+# ── FastAPI Backend ─────────────────────────────────────────
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
+websockets>=12.0
 aiofiles>=23.0.0
-pydantic>=2.7.0
 
-# ── Documents (brand guides) ────────────────────────────────
+# ── Data Validation ─────────────────────────────────────────
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+
+# ── Document Processing (for RAG PDFs) ──────────────────────
 pypdf>=4.2.0
 python-docx>=1.1.0
+unstructured>=0.14.0
 
 # ── Evaluation ──────────────────────────────────────────────
 rouge-score>=0.1.2
+nltk>=3.8.1
 pandas>=2.2.0
-rich>=13.7.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
 
-# ── Utilities & tests ───────────────────────────────────────
+# ── Utilities ───────────────────────────────────────────────
 python-dotenv>=1.0.1
+httpx>=0.27.0
+rich>=13.7.0
+tenacity>=8.3.0
 loguru>=0.7.2
-pytest>=8.0.0
-
-# ── Optional ────────────────────────────────────────────────
-# ultralytics>=8.0.0                 # YOLOv8 object-detection fallback in metadata_agent
+tqdm>=4.66.0

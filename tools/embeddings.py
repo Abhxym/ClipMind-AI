@@ -1,5 +1,5 @@
 """
-Embeddings Tool — ClipMind AI
+Embeddings Tool — AI Video Director
 ======================================
 Utility functions for text embedding generation.
 Used by: embedding_agent, rag_agent

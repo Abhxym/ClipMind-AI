@@ -1,3 +1,3 @@
 """
-ClipMind AI — Package Init
+AI Video Director — Package Init
 """
