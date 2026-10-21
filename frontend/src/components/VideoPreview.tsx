@@ -15,10 +15,11 @@ export function VideoPreview({ result, platform }: VideoPreviewProps) {
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [enhancedVideoUrl, setEnhancedVideoUrl] = useState<string | null>(null)
 
-  const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-  const originalVideoUrl = result.final_video_url ? new URL(result.final_video_url, backendUrl).href : null;
-  const videoUrl = enhancedVideoUrl ? new URL(enhancedVideoUrl, backendUrl).href : originalVideoUrl;
-  const thumbUrl = result.final_thumbnail_url ? new URL(result.final_thumbnail_url, backendUrl).href : null;
+  // Relative by default: Vite (dev) and nginx (Docker) proxy /outputs to the backend
+  const backendUrl = import.meta.env.VITE_API_URL || window.location.origin
+  const originalVideoUrl = result.final_video_url ? new URL(result.final_video_url, backendUrl).href : null
+  const videoUrl = enhancedVideoUrl ? new URL(enhancedVideoUrl, backendUrl).href : originalVideoUrl
+  const thumbUrl = result.final_thumbnail_url ? new URL(result.final_thumbnail_url, backendUrl).href : null
 
   const handleEnhance = async () => {
     try {
@@ -27,7 +28,9 @@ export function VideoPreview({ result, platform }: VideoPreviewProps) {
       setEnhancedVideoUrl(res.enhanced_video_url)
     } catch (err) {
       console.error('Enhance failed:', err)
-      alert('Failed to enhance video.')
+      let detail = err instanceof Error ? err.message : String(err)
+      try { detail = JSON.parse(detail).detail ?? detail } catch { /* plain text */ }
+      alert(`Failed to enhance video: ${detail}`)
     } finally {
       setIsEnhancing(false)
     }
@@ -133,11 +136,11 @@ export function VideoPreview({ result, platform }: VideoPreviewProps) {
       )}
 
       {/* ── Captions ─────────────────────────────────── */}
-      {result.captions.length > 0 && (
+      {result.captions.some(c => c.trim()) && (
         <div className="vp-captions">
           <div className="vp-section-label">💬 Scene Captions</div>
           <div className="vp-caption-list">
-            {result.captions.map((cap, i) => (
+            {result.captions.filter(c => c.trim()).map((cap, i) => (
               <div key={i} className="vp-caption-item">
                 <span className="vp-caption-num">{i + 1}</span>
                 <span className="vp-caption-text">{cap}</span>
@@ -157,8 +160,10 @@ export function VideoPreview({ result, platform }: VideoPreviewProps) {
           flex-direction: column;
           gap: 20px;
         }
-        .vp-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-        .vp-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 8px; }
+        .vp-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px 16px; }
+        .vp-header > div { min-width: 0; }
+        .vp-header > a { flex-shrink: 0; white-space: nowrap; }
+        .vp-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 8px; overflow-wrap: anywhere; }
         .vp-meta { display: flex; gap: 8px; flex-wrap: wrap; }
 
         .vp-player {

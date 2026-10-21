@@ -1,20 +1,18 @@
 """
-WebSocket Routes — AI Video Director API
+WebSocket Routes — ClipMind AI API
 =========================================
 Real-time pipeline progress streaming to the React dashboard.
-Each connected client receives JSON progress events per agent transition.
+Each connected client receives JSON progress events per agent transition
+(sent by api/routes/jobs.py through manager.broadcast).
 """
 
 from __future__ import annotations
 
 import asyncio
-import datetime
 import json
 from typing import Dict, Set
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-
-from api.models import WSProgressMessage
 
 
 router = APIRouter(prefix="/api/ws", tags=["websocket"])
@@ -46,36 +44,6 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-AGENT_ORDER = [
-    "input_agent", "preprocess_agent", "whisper_agent",
-    "scene_agent", "metadata_agent", "embedding_agent",
-    "rag_agent", "planner_agent", "caption_agent",
-    "editing_agent", "reviewer_agent", "export_agent",
-    "evaluation_agent",
-]
-
-
-def _pct(agent: str, status: str) -> float:
-    idx = AGENT_ORDER.index(agent) if agent in AGENT_ORDER else 0
-    base = (idx / len(AGENT_ORDER)) * 100
-    return base + (100 / len(AGENT_ORDER) if status == "done" else 0)
-
-
-async def broadcast_progress(job_id: str, agent: str, status: str, attempt: int = 0, msg: str = ""):
-    """Called from pipeline progress callback (via run_in_executor)."""
-    payload = {
-        "type": "progress",
-        "job_id": job_id,
-        "agent": agent,
-        "status": status,
-        "attempt": attempt,
-        "timestamp": datetime.datetime.utcnow().isoformat(),
-        "progress_pct": _pct(agent, status),
-        "message": msg,
-    }
-    await manager.broadcast(job_id, payload)
-
-
 @router.websocket("/{job_id}")
 async def ws_progress(websocket: WebSocket, job_id: str):
     """
@@ -90,7 +58,7 @@ async def ws_progress(websocket: WebSocket, job_id: str):
     await websocket.send_text(json.dumps({
         "type": "connected",
         "job_id": job_id,
-        "message": "Connected to AI Video Director pipeline stream",
+        "message": "Connected to ClipMind AI pipeline stream",
     }))
 
     try:

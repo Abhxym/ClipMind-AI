@@ -49,9 +49,14 @@ temp/
 *.wav
 *.mp3
 
-# Vector DBs
+# Vector DBs, checkpoints and evaluation output (generated at runtime)
+vector_db/
 rag/faiss_index/
 rag/chroma_db/
+rag/brand_kb/sample_brand_guide.txt
+pipeline/*.db
+*.db
+evaluation/results/
 
 # Logs
 logs/failed_runs/*.json

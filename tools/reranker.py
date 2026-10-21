@@ -1,5 +1,5 @@
 """
-Reranker Tool — AI Video Director
+Reranker Tool — ClipMind AI
 =====================================
 Cross-encoder reranking utility for RAG retrieval.
 Used by: rag_agent

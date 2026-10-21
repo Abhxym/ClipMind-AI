@@ -1,7 +1,7 @@
 """
-Caption Agent — AI Video Director
+Caption Agent — ClipMind AI
 =====================================
-Pipeline Step 9: Caption & Hashtag Generation using Gemini Flash.
+Pipeline Step 9: Caption & Hashtag Generation using Gemini (GEMINI_MODEL_CAPTION).
   - Generates an engaging video title based on the story plan and user brief
   - Writes per-scene captions (burned into individual clip segments)
   - Generates platform-optimized hashtags
@@ -12,12 +12,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from memory.state import VideoState
 
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
-GEMINI_MODEL_CAPTION = os.getenv("GEMINI_MODEL_CAPTION", "gemini-2.0-flash")
+GEMINI_MODEL_CAPTION = os.getenv("GEMINI_MODEL_CAPTION", os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
 
 PLATFORM_HASHTAG_COUNT = {
     "instagram": 25,
@@ -85,8 +85,10 @@ Respond ONLY with valid JSON:
     return prompt
 
 
-def _generate_with_gemini(state: VideoState) -> Dict[str, Any]:
-    """Use Gemini Flash to generate captions."""
+def _generate_with_gemini(state: VideoState) -> Tuple[Dict[str, Any], str]:
+    """Use Gemini to generate captions. Returns (result, failure_reason)."""
+    if not GOOGLE_API_KEY:
+        return {}, "GOOGLE_API_KEY not set"
     try:
         from google import genai
         client = genai.Client(api_key=GOOGLE_API_KEY)
@@ -103,13 +105,31 @@ def _generate_with_gemini(state: VideoState) -> Dict[str, Any]:
         elif "```" in text:
             text = text.split("```")[1].split("```")[0].strip()
 
-        return json.loads(text)
+        result = json.loads(text)
+        if isinstance(result, dict):
+            return result, ""
+        return {}, "response was not a JSON object"
     except ImportError:
-        return {}
+        return {}, "google-genai not installed"
     except json.JSONDecodeError:
-        return {}
-    except Exception:
-        return {}
+        return {}, "response was not valid JSON"
+    except Exception as exc:
+        return {}, f"{type(exc).__name__}: {str(exc)[:120]}"
+
+
+def _short_caption(text: str, max_words: int = 8) -> str:
+    """First sentence of a description, cut to max_words on a word boundary."""
+    first = text.split(". ")[0].strip().rstrip(".")
+    words = first.split()
+    return " ".join(words[:max_words]) + ("..." if len(words) > max_words else "")
+
+
+def _short_title(text: str, max_chars: int = 60) -> str:
+    """Brief → title: cut on a word boundary instead of mid-word."""
+    text = " ".join(text.split())
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rsplit(" ", 1)[0].rstrip(",.;:") + "..."
 
 
 def _fallback_captions(state: VideoState) -> Dict[str, Any]:
@@ -123,12 +143,10 @@ def _fallback_captions(state: VideoState) -> Dict[str, Any]:
     for entry in story_plan:
         clip_idx = entry.get("clip_index", 0)
         hint = entry.get("caption_hint", "")
-        if hint:
-            caption = hint[:40]
-        else:
+        if not hint:
             desc_match = next((d for d in scene_descriptions if d.get("clip_index") == clip_idx), {})
-            caption = desc_match.get("description", "Amazing moment")[:40]
-        scene_captions.append(caption)
+            hint = desc_match.get("description", "")
+        scene_captions.append(_short_caption(hint))  # "" = no caption burned in
 
     default_hashtags = {
         "instagram": ["#reels", "#viral", "#content", "#video", "#creative", "#trending"],
@@ -138,7 +156,7 @@ def _fallback_captions(state: VideoState) -> Dict[str, Any]:
     }
 
     return {
-        "video_title": user_prompt[:60] or "AI Generated Reel",
+        "video_title": _short_title(user_prompt) or "AI Generated Reel",
         "overall_tone": "dynamic",
         "music_mood": "upbeat electronic",
         "scene_captions": scene_captions,
@@ -157,12 +175,12 @@ def caption_agent_node(state: VideoState) -> VideoState:
     errors: List[Dict[str, Any]] = []
 
     # Try Gemini
-    result = _generate_with_gemini(state)
+    result, reason = _generate_with_gemini(state)
 
     if result:
-        logs.append("[caption_agent] Gemini generated captions successfully")
+        logs.append(f"[caption_agent] Gemini ({GEMINI_MODEL_CAPTION}) generated captions successfully")
     else:
-        logs.append("[caption_agent] Using fallback caption generator")
+        logs.append(f"[caption_agent] Gemini unavailable ({reason}) — using fallback caption generator")
         result = _fallback_captions(state)
 
     video_title = result.get("video_title", "AI Generated Reel")

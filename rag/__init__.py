@@ -1,3 +1,3 @@
 """
-AI Video Director — RAG Package
+ClipMind AI — RAG Package
 """
