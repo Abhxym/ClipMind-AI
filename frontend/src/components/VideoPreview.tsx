@@ -15,10 +15,11 @@ export function VideoPreview({ result, platform }: VideoPreviewProps) {
   const [isEnhancing, setIsEnhancing] = useState(false)
   const [enhancedVideoUrl, setEnhancedVideoUrl] = useState<string | null>(null)
 
-  const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-  const originalVideoUrl = result.final_video_url ? new URL(result.final_video_url, backendUrl).href : null;
-  const videoUrl = enhancedVideoUrl ? new URL(enhancedVideoUrl, backendUrl).href : originalVideoUrl;
-  const thumbUrl = result.final_thumbnail_url ? new URL(result.final_thumbnail_url, backendUrl).href : null;
+  // Relative by default: Vite (dev) and nginx (Docker) proxy /outputs to the backend
+  const backendUrl = import.meta.env.VITE_API_URL || window.location.origin
+  const originalVideoUrl = result.final_video_url ? new URL(result.final_video_url, backendUrl).href : null
+  const videoUrl = enhancedVideoUrl ? new URL(enhancedVideoUrl, backendUrl).href : originalVideoUrl
+  const thumbUrl = result.final_thumbnail_url ? new URL(result.final_thumbnail_url, backendUrl).href : null
 
   const handleEnhance = async () => {
     try {
@@ -27,7 +28,9 @@ export function VideoPreview({ result, platform }: VideoPreviewProps) {
       setEnhancedVideoUrl(res.enhanced_video_url)
     } catch (err) {
       console.error('Enhance failed:', err)
-      alert('Failed to enhance video.')
+      let detail = err instanceof Error ? err.message : String(err)
+      try { detail = JSON.parse(detail).detail ?? detail } catch { /* plain text */ }
+      alert(`Failed to enhance video: ${detail}`)
     } finally {
       setIsEnhancing(false)
     }

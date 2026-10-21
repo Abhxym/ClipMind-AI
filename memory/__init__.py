@@ -1,3 +1,3 @@
 """
-AI Video Director — Memory Package
+ClipMind AI — Memory Package
 """
